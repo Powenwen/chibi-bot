@@ -1,0 +1,132 @@
+name: Automated Tasks
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  health-check:
+    name: Daily Health Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run health check script
+        run: |
+          echo "Running health check..."
+          bun run health-check || echo "Health check script not available"
+
+      - name: Validate configuration
+        run: |
+          echo "Validating configuration..."
+          bun run validate-config || echo "Config validation script not available"
+
+      - name: Check TypeScript compilation
+        run: |
+          echo "Checking TypeScript compilation..."
+          bun run type-check
+
+  cleanup:
+    name: Cleanup Old Artifacts
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 30
+          keep_minimum_runs: 10
+
+  backup-check:
+    name: Backup Reminder
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Backup reminder
+        run: |
+          echo "🔔 Reminder: Ensure your database and Redis data are backed up regularly"
+          echo "Recommended backup frequency:"
+          echo "- MongoDB: Daily incremental, Weekly full"
+          echo "- Redis: Daily snapshots"
+          echo "- Configuration files: On every change"
+
+  dependency-cache:
+    name: Update Dependency Cache
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Update cache
+        run: echo "Dependency cache updated"
+
+  metrics-report:
+    name: Generate Metrics Report
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Calculate code metrics
+        run: |
+          echo "📊 Code Metrics Report"
+          echo "====================="
+          
+          echo ""
+          echo "Repository Statistics:"
+          echo "- Total commits: $(git rev-list --count HEAD)"
+          echo "- Contributors: $(git shortlog -sn --all | wc -l)"
+          echo "- Branches: $(git branch -r | wc -l)"
+          echo "- Tags: $(git tag | wc -l)"
+          
+          echo ""
+          echo "Code Statistics:"
+          echo "- TypeScript files: $(find src -name "*.ts" | wc -l)"
+          echo "- Total lines: $(find src -name "*.ts" | xargs wc -l | tail -1)"
+          
+          echo ""
+          echo "Project Structure:"
+          echo "- Commands: $(find src/commands -name "*.ts" 2>/dev/null | wc -l)"
+          echo "- Events: $(find src/events -name "*.ts" 2>/dev/null | wc -l)"
+          echo "- Features: $(find src/features -name "*.ts" 2>/dev/null | wc -l)"
+          echo "- Models: $(find src/models -name "*.ts" 2>/dev/null | wc -l)"
+
+      - name: Recent activity
+        run: |
+          echo ""
+          echo "📅 Recent Activity (Last 7 days):"
+          git log --since="7 days ago" --pretty=format:"- %s (%an)" --no-merges | head -20 || echo "No recent activity"

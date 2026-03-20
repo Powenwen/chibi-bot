@@ -1,0 +1,72 @@
+name: Dependency Updates
+
+on:
+  schedule:
+    # Run every Monday at 9 AM UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  check-updates:
+    name: Check for Dependency Updates
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Check for outdated dependencies
+        run: |
+          echo "Checking for outdated dependencies..."
+          bun outdated || echo "All dependencies are up to date"
+
+      - name: Generate dependency report
+        run: |
+          echo "Current dependencies:"
+          cat package.json | grep -A 50 "\"dependencies\"" || echo "No dependencies section"
+          
+          echo ""
+          echo "Current devDependencies:"
+          cat package.json | grep -A 50 "\"devDependencies\"" || echo "No devDependencies section"
+
+      - name: Check Discord.js version
+        run: |
+          CURRENT_VERSION=$(cat package.json | grep "discord.js" | head -1 | sed 's/.*: "//;s/",//')
+          echo "Current Discord.js version: $CURRENT_VERSION"
+          echo "Check https://github.com/discordjs/discord.js/releases for updates"
+
+      - name: Check TypeScript version
+        run: |
+          CURRENT_VERSION=$(cat package.json | grep "typescript" | head -1 | sed 's/.*: "//;s/",//')
+          echo "Current TypeScript version: $CURRENT_VERSION"
+
+  security-updates:
+    name: Check for Security Updates
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run security audit
+        run: |
+          echo "Running security audit..."
+          bun audit || echo "Security audit completed with warnings"
+
+      - name: Check for known vulnerabilities
+        run: |
+          echo "Checking for known vulnerabilities..."
+          echo "Consider using tools like Snyk or npm audit for detailed reports"

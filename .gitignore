@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Lockfiles (keep bun.lockb for reproducible builds)
+bun.lockb
+package-lock.json
+**/package-lock.json
+
+# Archived files
+archive/
+
+# Build outputs
+dist/
+**/dist/
+**/build/
+**/.next/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Runtime files
+dump.rdb
+*.log
+logs/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE files (keep these if needed for development)
+.devcontainer
+.vscode
+
+# Lockfiles (keep bun.lockb for reproducible builds)
+bun.lockb
+
+# Github directory (uncomment if you don't want to track workflows)
+# .github

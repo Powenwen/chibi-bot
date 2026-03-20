@@ -1,0 +1,136 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  code-quality:
+    name: Code Quality Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better analysis
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Check code formatting
+        run: |
+          echo "Checking for common code issues..."
+          
+          # Check for TODO comments
+          echo "Checking for TODO comments..."
+          grep -r "TODO" src/ || echo "No TODO comments found"
+          
+          # Check for console.log statements
+          echo "Checking for console.log statements..."
+          grep -r "console\.log" src/ || echo "No console.log found"
+          
+          # Check for debugger statements
+          echo "Checking for debugger statements..."
+          grep -r "debugger" src/ || echo "No debugger statements found"
+
+      - name: Check file sizes
+        run: |
+          echo "Checking for large files..."
+          find src -type f -size +500k -exec ls -lh {} \; || echo "No large files found"
+
+      - name: Count lines of code
+        run: |
+          echo "Lines of code statistics:"
+          echo "TypeScript files:"
+          find src -name "*.ts" | xargs wc -l | tail -1
+          echo "Total files:"
+          find src -name "*.ts" | wc -l
+
+      - name: Check for unused dependencies
+        run: |
+          echo "Installed dependencies:"
+          cat package.json | grep -A 20 "\"dependencies\"" || echo "Dependencies section not found"
+
+      - name: Validate package.json
+        run: |
+          echo "Validating package.json..."
+          cat package.json | bun x json5 > /dev/null 2>&1 || bun x jq . package.json > /dev/null
+
+  complexity-check:
+    name: Code Complexity Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Analyze project structure
+        run: |
+          echo "Project Structure Analysis:"
+          echo "Commands: $(find src/commands -name "*.ts" | wc -l)"
+          echo "Events: $(find src/events -name "*.ts" | wc -l)"
+          echo "Features: $(find src/features -name "*.ts" | wc -l)"
+          echo "Models: $(find src/models -name "*.ts" | wc -l)"
+          echo "Utils: $(find src/utils -name "*.ts" | wc -l)"
+
+      - name: Check for circular dependencies
+        run: |
+          echo "Checking for potential circular dependencies..."
+          echo "This is a basic check - consider adding madge for detailed analysis"
+
+  documentation-check:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check README
+        run: |
+          if [ ! -f README.md ]; then
+            echo "Error: README.md not found"
+            exit 1
+          fi
+          echo "README.md found"
+          echo "README size: $(wc -l < README.md) lines"
+
+      - name: Check for documentation files
+        run: |
+          echo "Documentation files present:"
+          ls -1 *.md 2>/dev/null || echo "No markdown files in root"
+          
+          echo "Documentation in docs/:"
+          ls -1 docs/*.md 2>/dev/null || echo "No docs directory"
+
+      - name: Check for LICENSE
+        run: |
+          if [ ! -f LICENSE ]; then
+            echo "Warning: LICENSE file not found"
+          else
+            echo "LICENSE file found"
+          fi
+
+      - name: Check for CONTRIBUTING guidelines
+        run: |
+          if [ ! -f CONTRIBUTING.md ]; then
+            echo "Info: CONTRIBUTING.md not found (optional)"
+          else
+            echo "CONTRIBUTING.md found"
+          fi

@@ -1,0 +1,122 @@
+name: PR Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [ main, develop ]
+
+jobs:
+  pr-checks:
+    name: PR Validation
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Check PR title
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          echo "PR Title: $PR_TITLE"
+          
+          # Check if title follows conventional commits
+          if echo "$PR_TITLE" | grep -qE "^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?: .+"; then
+            echo "✅ PR title follows conventional commits format"
+          else
+            echo "⚠️  PR title does not follow conventional commits format"
+            echo "Example: feat(commands): add new moderation command"
+          fi
+
+      - name: Check PR description
+        run: |
+          PR_BODY="${{ github.event.pull_request.body }}"
+          
+          if [ -z "$PR_BODY" ]; then
+            echo "⚠️  PR has no description"
+            echo "Please add a description explaining your changes"
+          else
+            echo "✅ PR has description"
+          fi
+
+      - name: Check for breaking changes
+        run: |
+          PR_BODY="${{ github.event.pull_request.body }}"
+          
+          if echo "$PR_BODY" | grep -qi "BREAKING CHANGE"; then
+            echo "⚠️  This PR contains BREAKING CHANGES"
+            echo "Make sure this is properly documented and versioned"
+          else
+            echo "✅ No breaking changes detected"
+          fi
+
+      - name: Run full validation
+        run: bun run validate
+
+      - name: Check for merge conflicts
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          
+          if git merge-tree $(git merge-base HEAD origin/${{ github.base_ref }}) HEAD origin/${{ github.base_ref }} | grep -q "^<<<<<"; then
+            echo "⚠️  Merge conflicts detected"
+            exit 1
+          else
+            echo "✅ No merge conflicts"
+          fi
+
+  size-check:
+    name: PR Size Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check PR size
+        run: |
+          # Count changed files
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | wc -l)
+          echo "Changed files: $CHANGED_FILES"
+          
+          # Count changed lines
+          ADDED=$(git diff --numstat origin/${{ github.base_ref }}...HEAD | awk '{sum+=$1} END {print sum}')
+          REMOVED=$(git diff --numstat origin/${{ github.base_ref }}...HEAD | awk '{sum+=$2} END {print sum}')
+          
+          echo "Lines added: $ADDED"
+          echo "Lines removed: $REMOVED"
+          
+          TOTAL=$((ADDED + REMOVED))
+          echo "Total changes: $TOTAL"
+          
+          if [ $TOTAL -gt 1000 ]; then
+            echo "⚠️  Large PR detected ($TOTAL lines changed)"
+            echo "Consider splitting into smaller PRs for easier review"
+          else
+            echo "✅ PR size is reasonable"
+          fi
+
+  label-check:
+    name: Check PR Labels
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check for labels
+        run: |
+          LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
+          
+          if [ "$LABELS" = "[]" ]; then
+            echo "⚠️  No labels on PR"
+            echo "Please add relevant labels (e.g., enhancement, bug, documentation)"
+          else
+            echo "✅ PR has labels: $LABELS"
+          fi

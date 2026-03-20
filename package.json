@@ -1,0 +1,72 @@
+{
+  "name": "chibi-bot",
+  "version": "3.4.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "description": "A comprehensive Discord moderation and community management bot built with strict TypeScript, featuring advanced auto-moderation, warning systems, welcome messages, sticky messages, auto-reactions, suggestions, and fun commands. Optimized for Bun runtime with MongoDB and Redis support.",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir=dist --target=bun",
+    "build:watch": "bun build src/index.ts --outdir=dist --target=bun --watch",
+    "type-check": "bun run --bun tsc --noEmit",
+    "type-check:scripts": "bun run --bun tsc --noEmit -p tsconfig.scripts.json",
+    "clean": "rm -rf dist",
+    "validate": "bun run type-check && bun run type-check:scripts",
+    "full-check": "bun run health-check && bun run validate-config && bun run validate && bun run start",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "test:coverage": "bun test --coverage",
+    "health-check": "bun run scripts/health-check.ts",
+    "validate-config": "bun run scripts/validate-config.ts",
+    "readme:update-version": "bun run scripts/update-readme-version.ts",
+    "version:patch": "bun run scripts/update-version.ts patch",
+    "version:minor": "bun run scripts/update-version.ts minor",
+    "version:major": "bun run scripts/update-version.ts major",
+    "version:custom": "bun run scripts/update-version.ts custom",
+    "version:help": "bun run scripts/update-version.ts --help",
+    "cli": "bun run src/cli/manage.ts",
+    "cache:clear": "bun run src/cli/manage.ts cache:clear",
+    "cache:rebuild": "bun run src/cli/manage.ts cache:rebuild",
+    "cache:stats": "bun run src/cli/manage.ts cache:stats",
+    "cache:validate": "bun run src/cli/manage.ts cache:validate",
+    "db:migrate": "bun run src/cli/manage.ts db:migrate",
+    "db:indexes": "bun run src/cli/manage.ts db:indexes",
+    "db:stats": "bun run src/cli/manage.ts db:stats",
+    "health": "bun run src/cli/manage.ts health:check"
+  },
+  "keywords": [
+    "discord",
+    "discord-bot",
+    "typescript",
+    "bun",
+    "mongodb",
+    "redis",
+    "moderation",
+    "auto-moderation",
+    "community-management",
+    "welcome-system",
+    "sticky-messages",
+    "auto-reactions",
+    "suggestions",
+    "warning-system",
+    "slash-commands",
+    "bot-framework"
+  ],
+  "engines": {
+    "node": ">=18.0.0",
+    "bun": ">=1.0.0"
+  },
+  "dependencies": {
+    "discord.js": "^14.22.1",
+    "dotenv": "^16.4.5",
+    "ioredis": "^5.4.2",
+    "mongoose": "^8.8.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "typedoc": "^0.25.0",
+    "typescript": "5.8.3"
+  }
+}

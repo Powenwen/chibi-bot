@@ -23,6 +23,11 @@ const envSchema = z.object({
     ENABLE_STICKY_MESSAGES: z.string().optional().default('false'),
     ENABLE_AUTO_REACTIONS: z.string().optional().default('false'),
     ENABLE_HEALTH_CHECKS: z.string().optional().default('true'),
+    // Command registration and command prefix
+    USE_GUILD_COMMANDS: z.string().optional(),
+    TARGET_GUILD_ID: z.string().optional(),
+    FORCE_REGISTER_COMMANDS: z.string().optional(),
+    PREFIX: z.string().optional(),
     // Cache settings
     MESSAGE_CACHE_TTL: z.string().regex(/^\d+$/).optional(),
     USER_DATA_CACHE_TTL: z.string().regex(/^\d+$/).optional(),

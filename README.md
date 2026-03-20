@@ -122,7 +122,7 @@ Create a `.env` file with the following settings:
 # Discord Bot Configuration
 TOKEN=your_discord_bot_token_here
 CLIENT_ID=your_discord_application_id_here
-GUILD_ID=your_test_guild_id_here
+GUILD_ID=your_discord_guild_id_here
 
 # Database Configuration
 MONGO_URI=mongodb://localhost:27017/chibibase
@@ -131,10 +131,28 @@ MONGO_DB_NAME=chibibase
 # Redis Configuration (optional)
 REDIS_HOST=localhost
 REDIS_PORT=6379
+REDIS_PASSWORD=
 
 # Development Settings
 NODE_ENV=development
+PREFIX=c!
+
+# Feature Flags
+ENABLE_WELCOME_SYSTEM=true
+ENABLE_STICKY_MESSAGES=true
+ENABLE_AUTO_REACTIONS=true
+ENABLE_HEALTH_CHECKS=true
+
+# Cache and Monitoring
+MESSAGE_CACHE_TTL=3600
+USER_DATA_CACHE_TTL=7200
+ERROR_THRESHOLD=50
+HEALTH_CHECK_INTERVAL=300000
+
+# Command Registration
 USE_GUILD_COMMANDS=true
+TARGET_GUILD_ID=your_test_guild_id_here
+FORCE_REGISTER_COMMANDS=false
 ```
 
 ## 📝 Available Scripts

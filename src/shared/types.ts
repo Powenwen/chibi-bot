@@ -47,7 +47,8 @@ export interface IAuthorizedUser {
 }
 
 // Suggestion System types
-export type SuggestionStatus = "Pending" | "Approved" | "Denied";
+export type SuggestionStatus = "Pending" | "Approved" | "Denied" | "Implemented" | "Considered";
+export type SuggestionPriority = "low" | "medium" | "high" | "critical";
 
 export interface ISuggestion {
   guildID: string;
@@ -58,6 +59,13 @@ export interface ISuggestion {
   authorID: string;
   status: SuggestionStatus;
   response: string;
+  category: string;
+  anonymous: boolean;
+  priority: SuggestionPriority;
+  attachmentUrl: string;
+  notes: string;
+  upvotes: string[];
+  downvotes: string[];
   responseAuthorID: string;
 }
 
@@ -74,17 +82,36 @@ export interface ISuggestionChannel {
 export interface IWelcomeSystem {
   guildID: string;
   channelID: string;
+  enabled: boolean;
   embed: {
     title: string;
     description: string;
     color: string;
     thumbnail: boolean;
+    thumbnailUrl: string;
+    image: boolean;
+    imageUrl: string;
+    author: {
+      enabled: boolean;
+      name: string;
+      iconUrl: string;
+      url: string;
+    };
     footer: {
       enabled: boolean;
       text: string;
+      iconUrl: string;
       timestamp: boolean;
     };
+    fields: Array<{ name: string; value: string; inline: boolean }>;
+    timestamp: boolean;
   };
+  dmEnabled: boolean;
+  dmMessage: string;
+  roleEnabled: boolean;
+  roleIDs: string[];
+  type: string;
+  message: string;
 }
 
 // Sticky Message types
@@ -96,11 +123,23 @@ export interface IStickyMessage {
   uniqueID: string;
   authorID: string;
   createdAt: Date;
+  updatedAt: Date;
   title: string;
   content: string;
   color: string;
+  description: string;
+  thumbnailUrl: string;
+  imageUrl: string;
+  footer: { text: string; iconUrl: string };
+  author: { name: string; iconUrl: string; url: string };
+  fields: Array<{ name: string; value: string; inline: boolean }>;
+  timestamp: boolean;
   embedID: string;
   maxMessageCount: number;
+  mode: "message-count" | "interval" | "persistent";
+  intervalSeconds: number;
+  enabled: boolean;
+  mentionRoleID: string;
 }
 
 // Auto Reaction types

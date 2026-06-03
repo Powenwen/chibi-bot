@@ -1,7 +1,7 @@
 import {
     ChatInputCommandInteraction,
     SlashCommandBuilder,
-    EmbedBuilder, 
+    EmbedBuilder,
     InteractionContextType,
     ApplicationIntegrationType,
     ChannelType,
@@ -10,12 +10,13 @@ import {
 import { BaseCommand } from "../../interfaces";
 import AutoReactionModel from "../../models/AutoReactionModel";
 import Logger from "../../features/Logger";
-import { redis } from "../../features/RedisDB";
+import { CacheManager } from "../../utils/CacheManager";
+import { CacheKeys } from "../../constants/CacheKeys";
 
 export default <BaseCommand>{
     data: new SlashCommandBuilder()
         .setName("ardelete")
-        .setDescription("Delete an auto reaction from the bot")
+        .setDescription("Delete an auto-reaction from a channel")
         .setContexts([
             InteractionContextType.Guild
         ])
@@ -25,7 +26,7 @@ export default <BaseCommand>{
         .addChannelOption(option =>
             option
                 .setName("channel")
-                .setDescription("The channel you want to delete the auto reaction from")
+                .setDescription("The channel to remove auto-reactions from")
                 .setRequired(true)
                 .addChannelTypes(ChannelType.GuildText)
         ),
@@ -33,8 +34,8 @@ export default <BaseCommand>{
         category: "auto-reaction",
         usage: "<channel>",
         examples: [
-            "/delete-auto-reaction #general",
-            "/delete-auto-reaction #starboard"
+            "/ardelete channel:#general",
+            "/ardelete channel:#starboard"
         ],
         permissions: ["Administrator"]
     },
@@ -42,37 +43,62 @@ export default <BaseCommand>{
         if (!interaction.guild) return;
 
         try {
-            const options = interaction.options;
-            const channel = options.getChannel("channel", true, [ChannelType.GuildText]);
+            const channel = interaction.options.getChannel("channel", true, [ChannelType.GuildText]);
 
-            if (!channel) return;
-
-            const autoReaction = await AutoReactionModel.findOne({ guildID: interaction.guildId, channelID: channel.id });
-            if (!autoReaction) {
+            if (!channel) {
                 return interaction.reply({
-                    content: "There are no auto reactions in this channel.",
+                    content: "❌ Invalid channel specified.",
                     flags: MessageFlags.Ephemeral
                 });
             }
 
+            const autoReaction = await AutoReactionModel.findOne({
+                guildID: interaction.guild.id,
+                channelID: channel.id
+            });
+
+            if (!autoReaction) {
+                return interaction.reply({
+                    content: `⚠️ No auto-reaction configured in <#${channel.id}>.`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            // Store info before deletion for the confirmation embed
+            const emojiCount = autoReaction.emojis?.length ?? 0;
+            const emojiPreview = autoReaction.emojis?.slice(0, 5).map((e: any) => e.raw).join(" ") ?? "None";
+            const authorId = autoReaction.authorID;
+
             await autoReaction.deleteOne();
 
-            // Clear cache
-            await redis.del(`guild:${interaction.guildId}`);
+            // Invalidate cache
+            const cacheManager = CacheManager.getInstance();
+            await cacheManager.delete(CacheKeys.autoReaction.channel(interaction.guild.id, channel.id));
+            await cacheManager.delete(CacheKeys.autoReaction.all(interaction.guild.id));
 
-            await interaction.reply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle("Auto Reaction Deleted")
-                        .setDescription(`The auto reaction in <#${channel.id}> has been deleted.`)
-                        .setColor("Red")
-                        .setTimestamp()
-                ]
-            });
+            const embed = new EmbedBuilder()
+                .setTitle("🗑️ Auto-Reaction Deleted")
+                .setDescription(`Auto-reaction removed from <#${channel.id}>`)
+                .addFields([
+                    {
+                        name: "Emojis Removed",
+                        value: emojiCount > 5 ? `${emojiPreview}... (${emojiCount} total)` : emojiPreview,
+                        inline: false
+                    },
+                    {
+                        name: "Originally Added By",
+                        value: `<@${authorId}>`,
+                        inline: true
+                    }
+                ])
+                .setColor("Red")
+                .setTimestamp();
+
+            await interaction.reply({ embeds: [embed] });
         } catch (error) {
             Logger.error(`Error in ardelete command: ${error}`);
             await interaction.reply({
-                content: "An error occurred while deleting the auto reaction.",
+                content: "❌ An error occurred while deleting the auto-reaction.",
                 flags: MessageFlags.Ephemeral
             }).catch(() => null);
         }

@@ -8,7 +8,7 @@ A comprehensive Discord bot written in TypeScript with MongoDB and Redis integra
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-100%25-blue)
 ![License](https://img.shields.io/badge/license-ISC-green)
-![Version](https://img.shields.io/badge/version-3.4.1-brightgreen)
+![Version](https://img.shields.io/badge/version-3.5.0-brightgreen)
 ![Discord Bot](https://img.shields.io/badge/Discord%20Bot-Ready-success)
 ![Code Quality](https://img.shields.io/badge/Code%20Quality-Strict%20TS-brightgreen)
 ![Runtime](https://img.shields.io/badge/Runtime-Bun-orange)
@@ -36,13 +36,18 @@ A comprehensive Discord bot written in TypeScript with MongoDB and Redis integra
 ### 🎭 **Auto-Reaction System**
 - Automatic emoji reactions for specific channels
 - Support for custom server emojis and Unicode
-- Pattern-based reactions
+- Pattern-based reactions with regex support
+- Cooldown system to prevent reaction spam
 - Redis caching for performance
+- Per-channel configuration with author tracking
 
 ### 🤖 **Auto-Responder System**
 - Automatic message responses to keywords/phrases
 - Case-sensitive and case-insensitive matching
 - Exact match or contains mode
+- Regex pattern matching support
+- Embed responses with customizable title and color
+- Cooldown system to prevent response spam
 - Channel-specific configuration
 - Administrator-controlled with Redis caching
 
@@ -124,6 +129,13 @@ TOKEN=your_discord_bot_token_here
 CLIENT_ID=your_discord_application_id_here
 GUILD_ID=your_discord_guild_id_here
 
+# Bot Owner IDs (JSON array of Discord user IDs)
+OWNER_IDS=["your_owner_user_id_here"]
+
+# Bot Activity Configuration
+BOT_ACTIVITY_NAME=over your server!
+BOT_ACTIVITIES=[{"name":"over your server!","type":3},{"name":"with your commands!","type":0}]
+
 # Database Configuration
 MONGO_URI=mongodb://localhost:27017/chibibase
 MONGO_DB_NAME=chibibase
@@ -182,6 +194,18 @@ bun run version:patch    # Bump patch version (3.1.2 → 3.1.3)
 bun run version:minor    # Bump minor version (3.1.2 → 3.2.0)
 bun run version:major    # Bump major version (3.1.2 → 4.0.0)
 bun run readme:update-version # Update README version badge
+```
+
+### CLI Management
+```bash
+bun run cache:clear     # Clear all Redis caches
+bun run cache:rebuild   # Rebuild caches from database
+bun run cache:stats     # View cache statistics
+bun run cache:validate  # Validate cache integrity
+bun run db:migrate      # Run database migrations
+bun run db:indexes      # Ensure database indexes
+bun run db:stats        # View database statistics
+bun run health          # Run health check
 ```
 
 ### Testing

@@ -1,260 +1,265 @@
-import StickyMessageModel from "../models/StickyMessageModel";
-import { IStickyMessage } from "../models/StickyMessageModel";
-import { ChannelType, ColorResolvable, EmbedBuilder, TextChannel } from "discord.js";
+import StickyMessageModel, { IStickyMessage } from "../models/StickyMessageModel";
+import {
+    ChannelType,
+    ColorResolvable,
+    EmbedBuilder,
+    TextChannel,
+    ClientUser
+} from "discord.js";
 import ChibiClient from "../structures/Client";
 import Logger from "./Logger";
-
+import { CacheManager } from "../utils/CacheManager";
+import { CacheKeys } from "../constants/CacheKeys";
 
 export default class StickyMessage {
-
     /**
-     * Add a sticky message to the database
+     * Creates a new sticky message in the database.
      */
-    public static async addStickyMessage(
-        guildID: string,
-        channelID: string,
-        messageID: string,
-        messageChannelID: string,
-        uniqueID: string,
-        authorID: string,
-        title: string,
-        content: string,
-        color: string,
-        embedID: string,
-        maxMessageCount: number
-    ): Promise<void> {
+    public static async addStickyMessage(data: Partial<IStickyMessage>): Promise<IStickyMessage | null> {
         try {
-            await StickyMessageModel.create({
-                guildID,
-                channelID,
-                messageID,
-                messageChannelID,
-                uniqueID,
-                authorID,
-                title,
-                content,
-                color,
-                embedID,
-                maxMessageCount,
-                createdAt: new Date()
-            });
+            const sticky = await StickyMessageModel.create(data);
+            await this.invalidateCache(data.guildID!);
+            return sticky;
         } catch (error) {
-            console.error("Error creating sticky message:", error);
-            try {
-                await StickyMessageModel.deleteOne({ uniqueID });
-            } catch (error) {
-                console.error(`Failed to delete sticky message with uniqueID ${uniqueID}:`, error);
-            }
+            Logger.error(`Error creating sticky message: ${error}`);
+            return null;
         }
     }
 
     /**
-     * Remove a sticky message from the database
+     * Removes a sticky message by its unique ID.
      */
     public static async removeStickyMessage(uniqueID: string): Promise<void> {
-        await StickyMessageModel.deleteOne({ uniqueID });
+        const sticky = await StickyMessageModel.findOne({ uniqueID });
+        if (sticky) {
+            await StickyMessageModel.deleteOne({ uniqueID });
+            await this.invalidateCache(sticky.guildID);
+        }
     }
 
     /**
-     * Get all sticky messages for a guild
+     * Gets all sticky messages for a guild.
      */
     public static async getStickyMessages(guildID: string): Promise<IStickyMessage[]> {
         return await StickyMessageModel.find({ guildID });
     }
 
     /**
-     * Get a sticky message by its unique ID
+     * Gets enabled sticky messages for a guild.
+     */
+    public static async getEnabledStickyMessages(guildID: string): Promise<IStickyMessage[]> {
+        return await StickyMessageModel.find({ guildID, enabled: true });
+    }
+
+    /**
+     * Gets a sticky message by its unique ID.
      */
     public static async getStickyMessage(uniqueID: string): Promise<IStickyMessage | null> {
         return await StickyMessageModel.findOne({ uniqueID });
     }
 
     /**
-     * Update a sticky message
+     * Gets a sticky message by channel ID.
+     */
+    public static async getStickyMessageByChannel(guildID: string, channelID: string): Promise<IStickyMessage | null> {
+        return await StickyMessageModel.findOne({ guildID, channelID });
+    }
+
+    /**
+     * Updates a sticky message.
      */
     public static async updateStickyMessage(uniqueID: string, data: Partial<IStickyMessage>): Promise<void> {
-        await StickyMessageModel.updateOne({ uniqueID }, data);
+        const sticky = await StickyMessageModel.findOneAndUpdate({ uniqueID }, data);
+        if (sticky) {
+            await this.invalidateCache(sticky.guildID);
+        }
     }
 
     /**
-     * Get a sticky message by a specific field
-     * @param field The field to search by
-     * @param value The value to search for
-     * @returns The sticky message
-     * @example
-     * ```typescript
-     * const stickyMessage = await StickyMessage.getStickyMessageBy("messageID", "1234567890");
-     * ```
+     * Toggles a sticky message on/off.
      */
-    public static async getStickyMessageBy(field: keyof IStickyMessage, value: string): Promise<IStickyMessage | null> {
-        return await StickyMessageModel.findOne({ [field]: value });
+    public static async toggleStickyMessage(uniqueID: string, enabled: boolean): Promise<IStickyMessage | null> {
+        const sticky = await StickyMessageModel.findOneAndUpdate(
+            { uniqueID },
+            { enabled },
+            { new: true }
+        );
+        if (sticky) {
+            await this.invalidateCache(sticky.guildID);
+        }
+        return sticky;
     }
 
     /**
-     * Get all sticky messages by a specific field
-     * @param field The field to search by
-     * @param value The value to search for
-     * @returns The sticky messages
-     * @example
-     * ```typescript
-     * const stickyMessages = await StickyMessage.getStickyMessagesBy("guildID", "1234567890");
-     * ```
-    */
-    public static async getStickyMessagesBy(field: keyof IStickyMessage, value: string): Promise<IStickyMessage[]> {
-        return await StickyMessageModel.find({ [field]: value });
-    }    /**
-     * Check and resend sticky messages on bot startup
-     * This ensures sticky messages are present even if the bot was offline
-     * Only resends if the sticky message is not already the latest message
+     * Moves a sticky message to a different channel.
+     */
+    public static async moveStickyMessage(uniqueID: string, newChannelID: string): Promise<IStickyMessage | null> {
+        const sticky = await StickyMessageModel.findOneAndUpdate(
+            { uniqueID },
+            { channelID: newChannelID },
+            { new: true }
+        );
+        if (sticky) {
+            await this.invalidateCache(sticky.guildID);
+        }
+        return sticky;
+    }
+
+    /**
+     * Builds a full embed from a sticky message config.
+     */
+    public static buildEmbed(config: IStickyMessage, clientUser: ClientUser): EmbedBuilder {
+        const embed = new EmbedBuilder();
+
+        if (config.title) embed.setTitle(config.title);
+        if (config.content) embed.setDescription(config.content);
+        if (config.description) embed.setDescription(config.description);
+        embed.setColor((config.color || "#5865F2") as ColorResolvable);
+
+        // Author
+        if (config.author?.name) {
+            const authorData: { name: string; iconURL?: string; url?: string } = {
+                name: config.author.name
+            };
+            if (config.author.iconUrl) authorData.iconURL = config.author.iconUrl;
+            if (config.author.url) authorData.url = config.author.url;
+            embed.setAuthor(authorData);
+        }
+
+        // Thumbnail
+        if (config.thumbnailUrl) {
+            embed.setThumbnail(config.thumbnailUrl);
+        }
+
+        // Image
+        if (config.imageUrl) {
+            embed.setImage(config.imageUrl);
+        }
+
+        // Fields
+        if (config.fields && config.fields.length > 0) {
+            for (const field of config.fields) {
+                embed.addFields({
+                    name: field.name,
+                    value: field.value,
+                    inline: field.inline
+                });
+            }
+        }
+
+        // Footer
+        if (config.footer?.text || config.footer?.iconUrl) {
+            embed.setFooter({
+                text: config.footer.text || "",
+                iconURL: config.footer.iconUrl || undefined
+            });
+        }
+
+        // Timestamp
+        if (config.timestamp) {
+            embed.setTimestamp();
+        }
+
+        return embed;
+    }
+
+    /**
+     * Sends or resends a sticky message embed in its channel.
+     */
+    public static async sendStickyEmbed(
+        config: IStickyMessage,
+        client: ChibiClient
+    ): Promise<string | null> {
+        try {
+            const guild = client.guilds.cache.get(config.guildID);
+            if (!guild) return null;
+
+            const channel = guild.channels.cache.get(config.channelID) as TextChannel;
+            if (!channel?.isTextBased() || channel.type !== ChannelType.GuildText) return null;
+
+            // Delete old embed if it exists
+            if (config.embedID) {
+                try {
+                    const oldMsg = await channel.messages.fetch(config.embedID).catch(() => null);
+                    if (oldMsg) await oldMsg.delete().catch(() => null);
+                } catch {
+                    // Old message already deleted
+                }
+            }
+
+            // Build and send new embed
+            const embed = this.buildEmbed(config, client.user as ClientUser);
+            const content = config.mentionRoleID ? `<@&${config.mentionRoleID}>` : undefined;
+            const sentMessage = await channel.send({ content, embeds: [embed] });
+
+            // Update embedID in database
+            await StickyMessageModel.updateOne({ uniqueID: config.uniqueID }, { embedID: sentMessage.id });
+
+            return sentMessage.id;
+        } catch (error) {
+            Logger.error(`Error sending sticky embed for ${config.uniqueID}: ${error}`);
+            return null;
+        }
+    }
+
+    /**
+     * Checks and resends sticky messages on bot startup.
      */
     public static async checkAndResendStickyMessages(client: ChibiClient): Promise<void> {
         try {
-            // Verify database connection before proceeding
-            const mongoose = require('mongoose');
-            if (mongoose.connection.readyState !== 1) {
-                throw new Error('Database not connected. Current state: ' + mongoose.connection.readyState);
-            }
+            const allStickyMessages = await StickyMessageModel.find({ enabled: true });
+            Logger.info(`Checking ${allStickyMessages.length} enabled sticky messages on startup...`);
 
-            Logger.info("Database connection verified, proceeding with sticky message check...");
-            
-            const allStickyMessages = await StickyMessageModel.find({}).maxTimeMS(30000); // 30 second timeout
-            Logger.info(`Checking ${allStickyMessages.length} sticky messages on startup...`);
-
-            // Initialize message count map if it doesn't exist
             if (!client.messageCountMap) {
                 client.messageCountMap = new Map<string, number>();
             }
 
-            for (const stickyMessage of allStickyMessages) {
+            for (const sticky of allStickyMessages) {
                 try {
-                    const guild = client.guilds.cache.get(stickyMessage.guildID);
-                    if (!guild) {
-                        Logger.warn(`Guild ${stickyMessage.guildID} not found for sticky message ${stickyMessage.uniqueID}`);
-                        continue;
-                    }
+                    const guild = client.guilds.cache.get(sticky.guildID);
+                    if (!guild) continue;
 
-                    const channel = guild.channels.cache.get(stickyMessage.channelID) as TextChannel;
-                    if (!channel?.isTextBased() || channel.type !== ChannelType.GuildText) {
-                        Logger.warn(`Channel ${stickyMessage.channelID} not found or not a text channel for sticky message ${stickyMessage.uniqueID}`);
-                        continue;
-                    }
-                    
-                    // Check if sticky message needs to be resent
-                    const needsResend = await this.checkIfStickyMessageNeedsResend(channel, stickyMessage);
-                    
+                    const channel = guild.channels.cache.get(sticky.channelID) as TextChannel;
+                    if (!channel?.isTextBased() || channel.type !== ChannelType.GuildText) continue;
+
+                    // Check if resend is needed
+                    const needsResend = await this.checkIfNeedsResend(channel, sticky);
+
                     if (needsResend) {
-                        // Delete the existing sticky message if it exists
-                        if (stickyMessage.embedID) {
-                            try {
-                                const existingMessage = await channel.messages.fetch(stickyMessage.embedID).catch(() => null);
-                                if (existingMessage) {
-                                    await existingMessage.delete().catch(err => 
-                                        Logger.warn(`Could not delete existing sticky message ${stickyMessage.embedID}: ${err}`)
-                                    );
-                                }
-                            } catch (error) {
-                                Logger.warn(`Error fetching existing sticky message ${stickyMessage.embedID}: ${error}`);
-                            }
-                        }
-                        
-                        // Send a new sticky message
-                        const embed = new EmbedBuilder()
-                            .setTitle(stickyMessage.title)
-                            .setDescription(stickyMessage.content)
-                            .setColor(stickyMessage.color as ColorResolvable)
-                            .setThumbnail(client.user?.displayAvatarURL() || null);
-
-                        const sentMessage = await channel.send({ embeds: [embed] });
-                        await stickyMessage.updateOne({ embedID: sentMessage.id });
-                        Logger.success(`Resent sticky message ${stickyMessage.uniqueID} in channel ${channel.name} (${channel.id})`);
-                    } else {
-                        Logger.info(`Sticky message ${stickyMessage.uniqueID} is already at the bottom of channel ${channel.name}, skipping resend`);
+                        await this.sendStickyEmbed(sticky, client);
+                        Logger.info(`Resent sticky message ${sticky.uniqueID} in #${channel.name}`);
                     }
 
-                    // Reset message count for this channel
+                    // Reset message count
                     client.messageCountMap.set(channel.id, 0);
-
                 } catch (error) {
-                    Logger.error(`Error processing sticky message ${stickyMessage.uniqueID}: ${error}`);
+                    Logger.error(`Error processing sticky message ${sticky.uniqueID}: ${error}`);
                 }
             }
 
             Logger.success("Completed sticky message startup check");
         } catch (error) {
             Logger.error(`Error during sticky message startup check: ${error}`);
-            
-            // Provide more specific error information
-            if (error instanceof Error) {
-                if (error.message.includes('buffering timed out')) {
-                    Logger.error("MongoDB operation timed out. This usually indicates a connection issue.");
-                    Logger.error("Please verify your MONGO_URI environment variable and ensure MongoDB is running.");
-                } else if (error.message.includes('not connected')) {
-                    Logger.error("Database connection not established. Retrying connection may be needed.");
-                }
-            }
-            
-            throw error; // Re-throw to allow caller to handle
         }
     }
 
     /**
-     * Check if a sticky message needs to be resent
-     * Returns true if the sticky message is not the latest message in the channel
+     * Checks if a sticky message needs to be resent (not the latest message).
      */
-    private static async checkIfStickyMessageNeedsResend(channel: TextChannel, stickyMessage: IStickyMessage): Promise<boolean> {
+    private static async checkIfNeedsResend(channel: TextChannel, sticky: IStickyMessage): Promise<boolean> {
+        if (!sticky.embedID) return true;
+
         try {
-            // If there's no embedID, we definitely need to send it
-            if (!stickyMessage.embedID) {
-                Logger.debug(`Sticky message ${stickyMessage.uniqueID} has no embedID, needs resend`);
-                return true;
-            }
-
-            // Fetch recent messages from the channel (limit to 10 to avoid unnecessary API calls)
-            const recentMessages = await channel.messages.fetch({ limit: 10 }).catch(() => null);
-            if (!recentMessages || recentMessages.size === 0) {
-                Logger.debug(`Could not fetch recent messages for channel ${channel.id}, assuming resend needed`);
-                return true;
-            }
-
-            // Check if the sticky message exists in recent messages
-            const stickyMessageExists = recentMessages.has(stickyMessage.embedID);
-            if (!stickyMessageExists) {
-                Logger.debug(`Sticky message ${stickyMessage.uniqueID} not found in recent messages, needs resend`);
-                return true;
-            }
-
-            // Get the latest message in the channel
-            const latestMessage = recentMessages.first();
-            if (!latestMessage) {
-                Logger.debug(`No latest message found in channel ${channel.id}, assuming resend needed`);
-                return true;
-            }
-
-            // Check if the sticky message is the latest message
-            const isStickyMessageLatest = latestMessage.id === stickyMessage.embedID;
-            if (!isStickyMessageLatest) {
-                Logger.debug(`Sticky message ${stickyMessage.uniqueID} is not the latest message, needs resend`);
-                return true;
-            }
-
-            // Check how many non-bot messages have been sent since the sticky message
-            const messagesAfterSticky = recentMessages.filter(msg => 
-                msg.createdTimestamp > latestMessage.createdTimestamp && !msg.author.bot
-            );
-
-            // If there are messages after the sticky message, it needs to be resent
-            if (messagesAfterSticky.size > 0) {
-                Logger.debug(`Found ${messagesAfterSticky.size} messages after sticky message ${stickyMessage.uniqueID}, needs resend`);
-                return true;
-            }
-
-            // Sticky message is at the bottom and no new messages after it
-            return false;
-
-        } catch (error) {
-            Logger.warn(`Error checking if sticky message needs resend: ${error}`);
-            // If we can't determine, err on the side of caution and resend
+            const recentMessages = await channel.messages.fetch({ limit: 5 }).catch(() => null);
+            if (!recentMessages || recentMessages.size === 0) return true;
+            return !recentMessages.has(sticky.embedID);
+        } catch {
             return true;
         }
+    }
+
+    private static async invalidateCache(guildID: string): Promise<void> {
+        const cacheManager = CacheManager.getInstance();
+        await cacheManager.delete(CacheKeys.stickyMessage.all(guildID));
     }
 }

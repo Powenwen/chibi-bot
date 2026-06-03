@@ -29,7 +29,9 @@ type CategoryType =
     "suggestion-system" |
     "welcome-system"    |
     "role-management"   |
-    "fun"               ;
+    "fun"               |
+    "warn-system"       |
+    "auto-moderation"   ;
 
 // Command configuration interface
 interface CommandConfig {

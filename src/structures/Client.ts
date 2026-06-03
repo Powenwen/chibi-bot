@@ -9,8 +9,6 @@ import InteractionHandler from './InteractionHandler';
 import LegacyCommandHandler from './LegacyCommandHandler';
 import { ActivityManager } from './ActivityManager';
 
-import { guildID, owners } from '../config/config'
-
 import Logger from '../features/Logger';
 
 import "dotenv/config";
@@ -47,7 +45,7 @@ export default class ChibiClient extends Client {
     public selectMenus: Collection<string, BaseSelectMenu> = new Collection();
 
     /** Bot configuration, including owner IDs. */
-    public config: { owners: string[] } = { owners };
+    public config: { owners: string[] } = { owners: [] };
     /** A map to track message counts, primarily for anti-spam. */
     public messageCountMap: Map<string, number> = new Map();
     /** The Redis client instance. */
@@ -84,8 +82,8 @@ export default class ChibiClient extends Client {
                 status: "online",
                 activities: [
                     {
-                        name: "over Chibimation Server!",
-                        type: ActivityType.Watching // Watching
+                        name: process.env.BOT_ACTIVITY_NAME || "over your server!",
+                        type: ActivityType.Watching
                     }
                 ]
             }
@@ -93,6 +91,10 @@ export default class ChibiClient extends Client {
 
         this.configManager = dependencies?.configManager || ConfigManager.getInstance();
         this.cacheManager = dependencies?.cacheManager || CacheManager.getInstance();
+
+        const botConfig = this.configManager.getConfig();
+        this.config = { owners: botConfig.ownerIds };
+
         this.commandHandler = new CommandHandler(this);
         this.eventHandler = new EventHandler(this);
         this.interactionHandler = new InteractionHandler(this);
@@ -234,7 +236,7 @@ export default class ChibiClient extends Client {
     private async registerCommands(): Promise<void> {
         try {
             const useGuildCommands = process.env.USE_GUILD_COMMANDS === 'true';
-            const targetGuildId = process.env.TARGET_GUILD_ID || guildID;
+            const targetGuildId = process.env.TARGET_GUILD_ID || this.configManager.getConfig().guildId;
             const forceRegister = process.env.FORCE_REGISTER_COMMANDS === 'true';
             
             if (useGuildCommands) {

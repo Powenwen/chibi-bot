@@ -71,7 +71,7 @@ export default <BaseCommand> {
                 .setMaxValue(3600)
         ),
     config: {
-        category: "moderation",
+        category: "auto-moderation",
         usage: "/automod-config <feature> [enabled] [action] [threshold] [time_window]",
         examples: [
             "/automod-config feature:antispam enabled:true",
@@ -103,35 +103,30 @@ export default <BaseCommand> {
 
             let settings = await ModerationSystem.getAutoModSettings(interaction.guild.id);
             if (!settings) {
-                // Create default settings
                 settings = await ModerationSystem.updateAutoModSettings(interaction.guild.id, {
                     guildID: interaction.guild.id,
                     enabled: true
                 });
             }
 
-            // Update settings based on feature
             switch (feature) {
                 case "antispam":
                     if (enabled !== null) (settings as IAutoModeration).antiSpam.enabled = enabled;
                     if (threshold) (settings as IAutoModeration).antiSpam.maxMessages = threshold;
                     if (timeWindow) (settings as IAutoModeration).antiSpam.timeWindow = timeWindow;
                     break;
-
                 case "wordfilter":
                     if (enabled !== null) (settings as IAutoModeration).wordFilter.enabled = enabled;
                     if (action && ["delete", "warn", "mute", "kick"].includes(action)) {
                         (settings as IAutoModeration).wordFilter.action = action as "delete" | "warn" | "mute" | "kick";
                     }
                     break;
-
                 case "linkfilter":
                     if (enabled !== null) (settings as IAutoModeration).linkFilter.enabled = enabled;
                     if (action && ["delete", "warn", "mute"].includes(action)) {
                         (settings as IAutoModeration).linkFilter.action = action as "delete" | "warn" | "mute";
                     }
                     break;
-
                 case "duplicatefilter":
                     if (enabled !== null) (settings as IAutoModeration).duplicateFilter.enabled = enabled;
                     if (action && ["delete", "warn", "mute"].includes(action)) {
@@ -140,7 +135,6 @@ export default <BaseCommand> {
                     if (threshold) (settings as IAutoModeration).duplicateFilter.maxDuplicates = threshold;
                     if (timeWindow) (settings as IAutoModeration).duplicateFilter.timeWindow = timeWindow;
                     break;
-
                 case "raidprotection":
                     if (enabled !== null) (settings as IAutoModeration).raidProtection.enabled = enabled;
                     if (action && ["kick", "ban"].includes(action)) {
@@ -159,16 +153,13 @@ export default <BaseCommand> {
                 .setDescription(`Configuration for **${feature}** has been updated.`)
                 .setTimestamp();
 
-            // Add current settings for the feature
             const featureSettings = getFeatureSettings(settings, feature);
             if (featureSettings) {
                 embed.addFields({ name: "Current Settings", value: featureSettings, inline: false });
             }
 
             await interaction.reply({ embeds: [embed] });
-
             Logger.info(`${interaction.user.tag} updated automod settings for ${feature} in ${interaction.guild.name}`);
-
         } catch (error) {
             Logger.error(`Failed to update automod settings: ${error}`);
             await interaction.reply({
@@ -184,7 +175,7 @@ async function showSettings(interaction: ChatInputCommandInteraction) {
 
     try {
         const settings = await ModerationSystem.getAutoModSettings(interaction.guild.id);
-        
+
         if (!settings) {
             return interaction.reply({
                 content: "No auto-moderation settings found. Use the command with specific options to configure features.",
@@ -226,7 +217,6 @@ async function showSettings(interaction: ChatInputCommandInteraction) {
             .setTimestamp();
 
         await interaction.reply({ embeds: [embed] });
-
     } catch (error) {
         Logger.error(`Failed to show automod settings: ${error}`);
         await interaction.reply({
@@ -240,19 +230,14 @@ function getFeatureSettings(settings: any, feature: string): string | null {
     switch (feature) {
         case "antispam":
             return `Enabled: ${settings.antiSpam.enabled ? "✅" : "❌"}\nMax Messages: ${settings.antiSpam.maxMessages}\nTime Window: ${settings.antiSpam.timeWindow}s\nMute Time: ${settings.antiSpam.muteTime}m`;
-        
         case "wordfilter":
             return `Enabled: ${settings.wordFilter.enabled ? "✅" : "❌"}\nAction: ${settings.wordFilter.action}\nFiltered Words: ${settings.wordFilter.words.length}`;
-        
         case "linkfilter":
             return `Enabled: ${settings.linkFilter.enabled ? "✅" : "❌"}\nAction: ${settings.linkFilter.action}\nAllowed Domains: ${settings.linkFilter.allowedDomains.length}`;
-        
         case "duplicatefilter":
             return `Enabled: ${settings.duplicateFilter.enabled ? "✅" : "❌"}\nMax Duplicates: ${settings.duplicateFilter.maxDuplicates}\nTime Window: ${settings.duplicateFilter.timeWindow}s\nAction: ${settings.duplicateFilter.action}`;
-        
         case "raidprotection":
             return `Enabled: ${settings.raidProtection.enabled ? "✅" : "❌"}\nJoin Threshold: ${settings.raidProtection.joinThreshold} joins\nTime Window: ${settings.raidProtection.timeWindow}s\nAction: ${settings.raidProtection.action}`;
-        
         default:
             return null;
     }

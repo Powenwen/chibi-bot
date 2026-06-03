@@ -8,12 +8,13 @@ import {
 } from "discord.js";
 import { BaseCommand } from "../../interfaces";
 import AutoResponderModel from "../../models/AutoResponderModel";
-import { redis } from "../../features/RedisDB";
+import { CacheManager } from "../../utils/CacheManager";
+import { CacheKeys } from "../../constants/CacheKeys";
 
 export default <BaseCommand>{
     data: new SlashCommandBuilder()
         .setName("aresplist")
-        .setDescription("List all auto responders from the bot")
+        .setDescription("List all auto-responders configured in this server")
         .setContexts([
             InteractionContextType.Guild
         ])
@@ -23,7 +24,7 @@ export default <BaseCommand>{
     config: {
         category: "auto-responder",
         usage: "",
-        examples: [""],
+        examples: ["/aresplist"],
         permissions: ["Administrator"]
     },
     async execute(interaction: ChatInputCommandInteraction) {
@@ -32,91 +33,86 @@ export default <BaseCommand>{
         if (!interaction.guild) return;
         await interaction.deferReply();
 
-        const guild = await redis.get(`autoresponder:${interaction.guildId}`);
+        const cacheManager = CacheManager.getInstance();
+        const cacheKey = CacheKeys.autoResponder.list(interaction.guild.id);
 
-        let autoResponders: any[];
+        // Try cache first
+        let autoResponders: any[] | null = await cacheManager.get<any[]>(cacheKey);
 
-        if (guild) {
-            autoResponders = (JSON.parse(guild) as any).autoResponders;
-        } else {
-            autoResponders = await AutoResponderModel.find({ guildID: interaction.guildId });
+        if (!autoResponders) {
+            autoResponders = await AutoResponderModel.find({ guildID: interaction.guild.id });
 
             if (!autoResponders.length) {
                 return interaction.followUp({
-                    content: "There are no auto responders in this server.",
+                    content: "📭 No auto-responders configured in this server.",
                     flags: MessageFlags.Ephemeral
                 });
             }
 
-            await redis.set(`autoresponder:${interaction.guildId}`, JSON.stringify({ autoResponders }), "EX", 60);
+            // Cache for 5 minutes
+            await cacheManager.set(cacheKey, autoResponders, 300);
         }
 
-        // Group auto responders by channel
+        // Group by channel
         const channelGroups = new Map<string, any[]>();
-        
-        for (const autoResponder of autoResponders) {
-            if (!channelGroups.has(autoResponder.channelID)) {
-                channelGroups.set(autoResponder.channelID, []);
+        for (const ar of autoResponders) {
+            if (!channelGroups.has(ar.channelID)) {
+                channelGroups.set(ar.channelID, []);
             }
-            channelGroups.get(autoResponder.channelID)!.push(autoResponder);
+            channelGroups.get(ar.channelID)!.push(ar);
         }
 
         const embeds: EmbedBuilder[] = [];
         let currentEmbed = new EmbedBuilder()
-            .setTitle("Auto Responders")
-            .setDescription(`Here are all auto responders in this server, grouped by channel.\n**Total:** ${autoResponders.length} responder(s) across ${channelGroups.size} channel(s)\n`)
+            .setTitle("🤖 Auto-Responders")
+            .setDescription(
+                `**${autoResponders.length} responder(s)** across **${channelGroups.size} channel(s)**\n` +
+                `Auto-responders reply automatically when a message matches a trigger.\n`
+            )
             .setColor("Aqua")
             .setTimestamp();
 
         let fieldCount = 0;
 
-        // Iterate through each channel group
         for (const [channelID, responders] of channelGroups) {
-            // If we're approaching the field limit, create a new embed
             if (fieldCount >= 24) {
                 embeds.push(currentEmbed);
                 currentEmbed = new EmbedBuilder()
-                    .setTitle("Auto Responders (continued)")
+                    .setTitle("🤖 Auto-Responders (continued)")
                     .setColor("Aqua")
                     .setTimestamp();
                 fieldCount = 0;
             }
 
-            // Build the triggers list for this channel
             let triggersText = "";
             for (let i = 0; i < responders.length; i++) {
-                const responder = responders[i];
-                const responsePreview = responder.response.length > 100 
-                    ? responder.response.substring(0, 97) + "..." 
-                    : responder.response;
-                
-                const options = [];
-                if (responder.caseSensitive) options.push("CS");
-                if (responder.exactMatch) options.push("EM");
-                if (responder.useEmbed) options.push("Embed");
-                const optionsText = options.length > 0 ? ` [${options.join(", ")}]` : "";
-                
-                triggersText += `**${i + 1}.** Trigger: \`${responder.trigger}\`${optionsText}\n`;
-                triggersText += `└ Response: ${responsePreview}\n`;
-                
-                if (responder.useEmbed && responder.embedTitle) {
-                    triggersText += `└ Title: ${responder.embedTitle}\n`;
+                const r = responders[i];
+                const responsePreview = r.response.length > 100
+                    ? r.response.substring(0, 97) + "..."
+                    : r.response;
+
+                const tags: string[] = [];
+                if (r.caseSensitive) tags.push("CS");
+                if (r.exactMatch) tags.push("EM");
+                if (r.useRegex) tags.push("Regex");
+                if (r.useEmbed) tags.push("Embed");
+                if (r.cooldown > 0) tags.push(`CD:${r.cooldown}s`);
+
+                const tagsText = tags.length > 0 ? ` [${tags.join(", ")}]` : "";
+
+                triggersText += `**${i + 1}.** \`${r.trigger}\`${tagsText}\n`;
+                triggersText += `└ → ${responsePreview}\n`;
+
+                if (r.useEmbed && r.embedTitle) {
+                    triggersText += `└ Title: ${r.embedTitle}\n`;
                 }
-                if (responder.useEmbed) {
-                    triggersText += `└ Color: ${responder.embedColor || "#5865F2"}\n`;
-                }
-                
-                triggersText += `└ Author: <@${responder.authorID || 'Unknown'}>\n`;
-                
-                // Add spacing between items
-                if (i < responders.length - 1) {
-                    triggersText += "\n";
-                }
+                triggersText += `└ By: <@${r.authorID || "Unknown"}>\n`;
+
+                if (i < responders.length - 1) triggersText += "\n";
             }
 
-            // Add field for this channel
             currentEmbed.addFields({
-                name: `📍 <#${channelID}> (${responders.length} responder${responders.length !== 1 ? 's' : ''})`,
+                name: `📍 <#${channelID}> (${responders.length})`,
                 value: triggersText.length > 1024 ? triggersText.substring(0, 1021) + "..." : triggersText,
                 inline: false
             });
@@ -124,20 +120,15 @@ export default <BaseCommand>{
             fieldCount++;
         }
 
-        // Add the last embed
         embeds.push(currentEmbed);
 
         const end = performance.now();
         const duration = (end - now).toFixed(2);
+        embeds[embeds.length - 1].setFooter({ text: `Took ${duration}ms • Use /arespadd to add, /arespdelete to remove` });
 
-        // Add footer to the last embed
-        embeds[embeds.length - 1].setFooter({ text: `Took ${duration}ms` });
-
-        // Send all embeds
         if (embeds.length === 1) {
             await interaction.followUp({ embeds: [embeds[0]] });
         } else {
-            // If multiple embeds, send them all
             for (const embed of embeds) {
                 await interaction.followUp({ embeds: [embed] });
             }

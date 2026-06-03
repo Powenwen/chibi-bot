@@ -2,33 +2,38 @@ import { BaseEvent } from "../../interfaces";
 import Logger from "../../features/Logger";
 import { ChannelType, ClientUser, ColorResolvable, EmbedBuilder, Message } from "discord.js";
 import ChibiClient from "../../structures/Client";
-import StickyMessageModel from "../../models/StickyMessageModel";
+import StickyMessage from "../../features/StickyMessage";
 import AutoReactionModel from "../../models/AutoReactionModel";
 import AutoResponderModel from "../../models/AutoResponderModel";
 import AutoModerationManager from "../../features/AutoModerationManager";
 import { ErrorHandler } from "../../utils/ErrorHandler";
+import { CacheManager } from "../../utils/CacheManager";
+import { CacheKeys } from "../../constants/CacheKeys";
+
+// Cooldown tracking for auto-responders (guildID:channelID -> last trigger timestamp)
+const responderCooldowns = new Map<string, number>();
 
 const processMessage = async (client: ChibiClient, message: Message) => {
     // Check for legacy commands first (dev commands only)
     const prefix = process.env.PREFIX || 'c!';
     if (message.content.startsWith(prefix)) {
         await client.getLegacyCommandHandler().handleMessage(message);
-        return; // Don't process further if it's a command
+        return;
     }
 
     // Run auto-moderation checks using the centralized manager
     const moderationTriggered = await AutoModerationManager.processMessage(message);
+    if (moderationTriggered) return;
 
-    // If auto-moderation was triggered and deleted the message, don't proceed
-    if (moderationTriggered) {
-        return;
-    }
+    const guildId = message.guild!.id;
+    const channelId = message.channel.id;
+    const cacheManager = CacheManager.getInstance();
 
-    // Continue with regular message handling
+    // Fetch data with caching
     const [stickyMessage, autoReaction, autoResponders] = await Promise.all([
-        StickyMessageModel.findOne({ guildID: message.guild!.id, channelID: message.channel.id }),
-        AutoReactionModel.findOne({ guildID: message.guild!.id, channelID: message.channel.id }),
-        AutoResponderModel.find({ guildID: message.guild!.id, channelID: message.channel.id })
+        StickyMessage.getStickyMessageByChannel(guildId, channelId),
+        getCachedAutoReaction(cacheManager, guildId, channelId),
+        getCachedAutoResponders(cacheManager, guildId, channelId)
     ]);
 
     await Promise.all([
@@ -38,28 +43,58 @@ const processMessage = async (client: ChibiClient, message: Message) => {
     ]);
 };
 
-const handleStickyMessage = async (client: ChibiClient, message: Message, stickyMessage: any) => {
-    const messageCountMap = client.messageCountMap || new Map<string, number>();
-    const embed = new EmbedBuilder()
-        .setTitle(stickyMessage.title)
-        .setDescription(stickyMessage.content)
-        .setColor(stickyMessage.color as ColorResolvable)
-        .setThumbnail((client.user as ClientUser).displayAvatarURL());
+/**
+ * Fetches auto-reaction config with Redis caching.
+ */
+async function getCachedAutoReaction(cacheManager: CacheManager, guildId: string, channelId: string) {
+    const key = CacheKeys.autoReaction.channel(guildId, channelId);
+    const cached = await cacheManager.get<any>(key);
+    if (cached) return cached;
 
-    const channel = message.guild!.channels.cache.get(stickyMessage.channelID);
+    const result = await AutoReactionModel.findOne({ guildID: guildId, channelID: channelId });
+    if (result) {
+        await cacheManager.set(key, result, 300);
+    }
+    return result;
+}
+
+/**
+ * Fetches auto-responder configs with Redis caching.
+ */
+async function getCachedAutoResponders(cacheManager: CacheManager, guildId: string, channelId: string) {
+    const key = CacheKeys.autoResponder.channel(guildId, channelId);
+    const cached = await cacheManager.get<any[]>(key);
+    if (cached) return cached;
+
+    const results = await AutoResponderModel.find({ guildID: guildId, channelID: channelId });
+    if (results.length > 0) {
+        await cacheManager.set(key, results, 300);
+    }
+    return results;
+}
+
+const handleStickyMessage = async (client: ChibiClient, message: Message, sticky: any) => {
+    if (!sticky || !sticky.enabled) return;
+
+    const messageCountMap = client.messageCountMap || new Map<string, number>();
+    const channel = message.guild!.channels.cache.get(sticky.channelID);
     if (!channel?.isTextBased() || channel.type !== ChannelType.GuildText) return;
 
     const currentCount = (messageCountMap.get(channel.id) || 0) + 1;
+    const shouldRepost = sticky.mode === "persistent" || sticky.maxMessageCount === 0 || currentCount >= sticky.maxMessageCount;
 
-    if (stickyMessage.maxMessageCount === 0 || currentCount >= stickyMessage.maxMessageCount) {
+    if (shouldRepost) {
         // Delete previous sticky message if it exists
-        if (stickyMessage.embedID) {
-            const oldMessage = await channel.messages.fetch(stickyMessage.embedID).catch(() => null);
+        if (sticky.embedID) {
+            const oldMessage = await channel.messages.fetch(sticky.embedID).catch(() => null);
             await oldMessage?.delete().catch(() => null);
         }
 
-        const msg = await channel.send({ embeds: [embed] });
-        await stickyMessage.updateOne({ embedID: msg.id });
+        // Build and send new sticky embed
+        const embed = StickyMessage.buildEmbed(sticky, client.user as ClientUser);
+        const content = sticky.mentionRoleID ? `<@&${sticky.mentionRoleID}>` : undefined;
+        const msg = await channel.send({ content, embeds: [embed] });
+        await StickyMessage.updateStickyMessage(sticky.uniqueID, { embedID: msg.id });
         messageCountMap.set(channel.id, 0);
     } else {
         messageCountMap.set(channel.id, currentCount);
@@ -70,34 +105,33 @@ const handleStickyMessage = async (client: ChibiClient, message: Message, sticky
 
 const handleAutoReaction = async (message: Message, autoReaction: any) => {
     try {
+        // Check ignoreBots setting
+        if (autoReaction.ignoreBots !== false && message.author.bot) return;
+
         const emojis = autoReaction.emojis;
-        
-        // Handle both old format (string array) and new format (emoji objects)
+        if (!emojis || emojis.length === 0) return;
+
         for (const emoji of emojis) {
             try {
                 let emojiToReact;
-                
+
                 if (typeof emoji === 'string') {
-                    // Old format: direct string
                     emojiToReact = emoji;
                 } else if (emoji.raw) {
-                    // New format: emoji object with raw property
                     if (emoji.isUnicode) {
                         emojiToReact = emoji.raw;
                     } else {
-                        // Custom emoji - check if it exists in the guild
                         const guildEmoji = message.guild!.emojis.cache.get(emoji.emojiID);
                         emojiToReact = guildEmoji || emoji.raw;
                     }
                 }
-                
+
                 if (emojiToReact) {
                     await message.react(emojiToReact);
                     // Small delay between reactions to avoid rate limits
-                    await new Promise(resolve => setTimeout(resolve, 100));
+                    await new Promise(resolve => setTimeout(resolve, 250));
                 }
             } catch (error) {
-                // Log but don't fail the entire process for one emoji
                 Logger.debug(`Failed to react with emoji in ${message.guild!.id}: ${error}`);
             }
         }
@@ -113,14 +147,46 @@ const handleAutoResponder = async (message: Message, autoResponder: any) => {
         const response = autoResponder.response;
         const caseSensitive = autoResponder.caseSensitive;
         const exactMatch = autoResponder.exactMatch;
+        const useRegex = autoResponder.useRegex;
         const useEmbed = autoResponder.useEmbed;
         const embedTitle = autoResponder.embedTitle;
         const embedColor = autoResponder.embedColor || "#5865F2";
+        const cooldown = autoResponder.cooldown || 0;
+        const responseDelay = autoResponder.responseDelay || 0;
+        const suppressMentions = autoResponder.suppressMentions !== false;
+
+        // Check cooldown
+        if (cooldown > 0) {
+            const cooldownKey = `${message.guild!.id}:${message.channel.id}:${trigger}`;
+            const lastTriggered = responderCooldowns.get(cooldownKey) || 0;
+            const now = Date.now();
+            if (now - lastTriggered < cooldown * 1000) {
+                return; // Still on cooldown
+            }
+            responderCooldowns.set(cooldownKey, now);
+
+            // Clean up old cooldown entries periodically
+            if (responderCooldowns.size > 10000) {
+                const cutoff = now - 3600000; // 1 hour
+                for (const [key, time] of responderCooldowns) {
+                    if (time < cutoff) responderCooldowns.delete(key);
+                }
+            }
+        }
 
         let shouldRespond = false;
 
-        if (exactMatch) {
-            // Exact match mode
+        if (useRegex) {
+            // Regex matching mode
+            try {
+                const flags = caseSensitive ? 'g' : 'gi';
+                const regex = new RegExp(trigger, flags);
+                shouldRespond = regex.test(messageContent);
+            } catch {
+                Logger.warn(`Invalid regex pattern in auto-responder: ${trigger}`);
+                return;
+            }
+        } else if (exactMatch) {
             if (caseSensitive) {
                 shouldRespond = messageContent === trigger;
             } else {
@@ -135,22 +201,30 @@ const handleAutoResponder = async (message: Message, autoResponder: any) => {
             }
         }
 
-        if (shouldRespond) {
-            if (useEmbed) {
-                // Send as embed
-                const embed = new EmbedBuilder()
-                    .setDescription(response)
-                    .setColor(embedColor as ColorResolvable);
-                
-                if (embedTitle) {
-                    embed.setTitle(embedTitle);
-                }
-                
-                await message.reply({ embeds: [embed] });
-            } else {
-                // Send as plain text
-                await message.reply(response);
+        if (!shouldRespond) return;
+
+        // Apply response delay if configured
+        if (responseDelay > 0) {
+            await new Promise(resolve => setTimeout(resolve, responseDelay));
+        }
+
+        // Build allowed mentions
+        const allowedMentions = suppressMentions
+            ? { parse: [] }
+            : undefined;
+
+        if (useEmbed) {
+            const embed = new EmbedBuilder()
+                .setDescription(response)
+                .setColor(embedColor as ColorResolvable);
+
+            if (embedTitle) {
+                embed.setTitle(embedTitle);
             }
+
+            await message.reply({ embeds: [embed], allowedMentions });
+        } else {
+            await message.reply({ content: response, allowedMentions });
         }
     } catch (error) {
         Logger.error(`Error in auto responder handler: ${error}`);

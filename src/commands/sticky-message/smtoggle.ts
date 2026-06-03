@@ -5,9 +5,7 @@ import {
     EmbedBuilder,
     InteractionContextType,
     ApplicationIntegrationType,
-    TextChannel,
-    MessageFlags,
-    GuildMember
+    MessageFlags
 } from "discord.js";
 import { BaseCommand } from "../../interfaces";
 import StickyMessage from "../../features/StickyMessage";
@@ -15,96 +13,66 @@ import Utility from "../../structures/Utility";
 
 export default <BaseCommand>{
     data: new SlashCommandBuilder()
-        .setName("smdelete")
-        .setDescription("Delete a sticky message")
+        .setName("smtoggle")
+        .setDescription("Enable or disable a sticky message")
         .setContexts([InteractionContextType.Guild])
         .setIntegrationTypes([ApplicationIntegrationType.GuildInstall])
         .addStringOption(option =>
             option.setName("id")
-                .setDescription("The ID of the sticky message to delete")
+                .setDescription("The ID of the sticky message")
                 .setRequired(true)
                 .setAutocomplete(true)
+        )
+        .addBooleanOption(option =>
+            option.setName("enabled")
+                .setDescription("Enable or disable")
+                .setRequired(true)
         ),
     config: {
         category: "sticky-message",
-        usage: "<id>",
-        examples: ["/smdelete id:AbC123"],
+        usage: "<id> <enabled>",
+        examples: ["/smtoggle id:AbC123 enabled:false"],
         permissions: ["Administrator"]
     },
     async execute(interaction: ChatInputCommandInteraction) {
         if (!interaction.guild) return;
 
         const id = interaction.options.getString("id", true);
+        const enabled = interaction.options.getBoolean("enabled", true);
 
-        if (id === "none") {
-            return interaction.reply({
-                content: "❌ You do not have permission to use this command!",
-                flags: MessageFlags.Ephemeral
-            });
-        }
-
-        const sticky = await StickyMessage.getStickyMessage(id);
-        if (!sticky || sticky.guildID !== interaction.guild.id) {
+        const sticky = await StickyMessage.toggleStickyMessage(id, enabled);
+        if (!sticky) {
             return interaction.reply({
                 content: "❌ No sticky message found with that ID.",
                 flags: MessageFlags.Ephemeral
             });
         }
 
-        // Delete the embed message from the channel
-        try {
-            const channel = interaction.guild.channels.cache.get(sticky.channelID) as TextChannel;
-            if (channel && sticky.embedID) {
-                const msg = await channel.messages.fetch(sticky.embedID).catch(() => null);
-                if (msg) await msg.delete().catch(() => null);
-            }
-        } catch {
-            // Message already deleted
-        }
-
-        // Delete from database
-        await StickyMessage.removeStickyMessage(id);
-
         const embed = new EmbedBuilder()
-            .setTitle("🗑️ Sticky Message Deleted")
-            .setDescription(`The sticky message has been removed.`)
+            .setTitle(`${enabled ? "🟢" : "🔴"} Sticky Message ${enabled ? "Enabled" : "Disabled"}`)
+            .setDescription(`Sticky message \`${id}\` has been **${enabled ? "enabled" : "disabled"}**.`)
             .addFields([
-                { name: "ID", value: `\`${id}\``, inline: true },
                 { name: "Channel", value: `<#${sticky.channelID}>`, inline: true },
                 { name: "Title", value: sticky.title || "Untitled", inline: true }
             ])
-            .setColor("Red")
+            .setColor(enabled ? "Green" : "Orange")
             .setTimestamp();
 
-        await interaction.reply({ embeds: [embed] });
+        await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     },
 
     async autocomplete(interaction: AutocompleteInteraction) {
-        if (!(interaction.member as GuildMember).permissions.has("Administrator")) {
-            return interaction.respond([{
-                name: "You do not have permission to use this command!",
-                value: "none"
-            }]);
-        }
-
         const stickyMessages = await StickyMessage.getStickyMessages(interaction.guildId!);
         const choices = stickyMessages.map(sm => ({
-            name: `${sm.uniqueID} — ${sm.title || "Untitled"} (#${sm.channelID})`,
+            name: `${sm.uniqueID} — ${sm.title || "Untitled"} (${sm.enabled ? "ON" : "OFF"})`,
             value: sm.uniqueID
         }));
-
         const focused = interaction.options.getFocused();
-        const filtered = Utility.filterAutocompleteChoices(
-            choices.map(c => c.name),
-            focused
-        );
-
-        // Map back to values
+        const filtered = Utility.filterAutocompleteChoices(choices.map(c => c.name), focused);
         const result = filtered.map(f => {
             const match = choices.find(c => c.name === f.name || c.name.startsWith(f.name));
             return match || f;
         });
-
         await interaction.respond(result.slice(0, 25));
     }
 };

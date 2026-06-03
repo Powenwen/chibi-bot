@@ -8,9 +8,13 @@ export interface IAutoResponder extends Document {
     authorID: string;
     caseSensitive: boolean;
     exactMatch: boolean;
+    useRegex: boolean;
     useEmbed: boolean;
     embedTitle?: string;
     embedColor?: string;
+    cooldown: number;
+    responseDelay: number;
+    suppressMentions: boolean;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -46,6 +50,10 @@ const AutoResponderSchema = new Schema<IAutoResponder>({
         type: Boolean,
         default: false
     },
+    useRegex: {
+        type: Boolean,
+        default: false
+    },
     useEmbed: {
         type: Boolean,
         default: false
@@ -58,6 +66,22 @@ const AutoResponderSchema = new Schema<IAutoResponder>({
         type: String,
         required: false,
         default: "#5865F2" // Discord Blurple
+    },
+    cooldown: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 3600
+    },
+    responseDelay: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 10000
+    },
+    suppressMentions: {
+        type: Boolean,
+        default: true
     },
     createdAt: {
         type: Date,

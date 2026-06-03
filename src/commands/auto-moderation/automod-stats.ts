@@ -1,7 +1,7 @@
-import { 
-    ChatInputCommandInteraction, 
-    SlashCommandBuilder, 
-    EmbedBuilder, 
+import {
+    ChatInputCommandInteraction,
+    SlashCommandBuilder,
+    EmbedBuilder,
     PermissionFlagsBits
 } from "discord.js";
 import { BaseCommand } from "../../interfaces";
@@ -11,7 +11,7 @@ import AutoModerationLogger from "../../features/AutoModerationLogger";
 function formatFilterName(filter: string): string {
     const names: Record<string, string> = {
         antiSpam: 'Anti-Spam',
-        wordFilter: 'Word Filter', 
+        wordFilter: 'Word Filter',
         linkFilter: 'Link Filter',
         duplicateFilter: 'Duplicate Filter',
         capsFilter: 'Caps Filter'
@@ -31,7 +31,7 @@ const command: BaseCommand = {
         )
         .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
     config: {
-        category: "moderation",
+        category: "auto-moderation",
         usage: "[days]",
         examples: ["/automod-stats", "/automod-stats days:14"],
         permissions: ["ModerateMembers"]
@@ -51,10 +51,7 @@ const command: BaseCommand = {
             const options = interaction.options;
             const days = options.getInteger("days") || 7;
 
-            // Get current metrics
             const currentMetrics = await AutoModerationManager.getStatistics(interaction.guild.id);
-            
-            // Get historical statistics
             const historicalStats = await AutoModerationLogger.getStatistics(interaction.guild.id, days);
 
             const embed = new EmbedBuilder()
@@ -62,7 +59,6 @@ const command: BaseCommand = {
                 .setColor('#3498DB')
                 .setTimestamp();
 
-            // Current session metrics
             if (currentMetrics) {
                 embed.addFields({
                     name: '📊 Current Session',
@@ -75,7 +71,6 @@ const command: BaseCommand = {
                     inline: false
                 });
 
-                // Filter breakdown
                 const filters = Object.entries(currentMetrics.filterBreakdown)
                     .filter(([_, count]) => count > 0)
                     .map(([filter, count]) => `**${formatFilterName(filter)}:** ${count}`)
@@ -90,7 +85,6 @@ const command: BaseCommand = {
                 }
             }
 
-            // Historical statistics
             if (historicalStats.length > 0) {
                 const totalActions = historicalStats.reduce((sum: number, day: any) => sum + day.totalActions, 0);
                 const totalUsers = new Set(historicalStats.flatMap((day: any) => Array(day.uniqueUsers).fill(0).map((_, i) => i))).size;
@@ -107,7 +101,6 @@ const command: BaseCommand = {
                     inline: false
                 });
 
-                // Historical filter breakdown
                 const historicalFilters = historicalStats.reduce((acc: Record<string, number>, day: any) => {
                     Object.entries(day.filterBreakdown).forEach(([filter, count]) => {
                         acc[filter] = (acc[filter] || 0) + (count as number);
@@ -129,7 +122,6 @@ const command: BaseCommand = {
                     });
                 }
 
-                // Daily trend (last 7 days)
                 const recentDays = historicalStats.slice(-7);
                 const trendText = recentDays.map((day: any) => {
                     const date = new Date(day.date);
@@ -146,8 +138,7 @@ const command: BaseCommand = {
                 }
             }
 
-            // Performance indicators
-            const performanceIndicators = [];
+            const performanceIndicators: string[] = [];
             if (currentMetrics?.avgResponseTime) {
                 if (currentMetrics.avgResponseTime < 50) {
                     performanceIndicators.push('🟢 Excellent response time');
@@ -180,7 +171,6 @@ const command: BaseCommand = {
             embed.setFooter({ text: `Stats for ${interaction.guild.name} • Auto-refresh every 5 minutes` });
 
             await interaction.editReply({ embeds: [embed] });
-
         } catch (error) {
             console.error("Error in automod-stats command:", error);
             await interaction.editReply({

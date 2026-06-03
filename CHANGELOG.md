@@ -4,6 +4,31 @@ All notable changes to Chibi Bot will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - 2026-06-03
+
+### 🔧 Refactoring
+- **Environment Configuration**: Moved all hardcoded values (guildID, owners) from `config.ts` to environment variables via `ConfigManager`
+- **ConfigManager**: Centralized all configuration through `ConfigManager` — `Client.ts` no longer imports from `config.ts`
+- **Dead Code**: `src/config/config.ts` is now unused (all consumers migrated to `ConfigManager`)
+
+### 📚 Documentation
+- **README.md**: Updated version badge, added `OWNER_IDS`/`BOT_ACTIVITY_NAME`/`BOT_ACTIVITIES` env vars, expanded feature descriptions, added CLI management section
+- **CHANGELOG.md**: Added v3.5.0 entry
+- **.env.example**: Added bot activity configuration env vars
+
+### 🎭 Auto-Reaction System Improvements
+- **aradd**: Added cooldown support, regex pattern matching, bulk emoji validation, better error messages
+- **ardelete**: Added confirmation embed with deleted reaction details
+- **arlist**: Improved formatting with emoji type indicators, pagination support
+
+### 🤖 Auto-Responder System Improvements
+- **arespadd**: Added regex pattern support, cooldown configuration, response delay, mention suppression
+- **arespdelete**: Improved deletion with better feedback and cache invalidation
+- **aresplist**: Enhanced formatting with trigger type indicators, pagination
+
+### ⚡ Performance
+- **messageCreate**: Migrated auto-reaction/resolver to use `CacheManager` with proper cache key patterns, added cooldown tracking per channel
+
 ## [3.1.2] - 2025-09-28
 
 ### 🔧 Fixed

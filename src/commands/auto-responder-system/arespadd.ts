@@ -10,12 +10,26 @@ import {
 import { BaseCommand } from "../../interfaces";
 import AutoResponderModel from "../../models/AutoResponderModel";
 import Logger from "../../features/Logger";
-import { redis } from "../../features/RedisDB";
+import { CacheManager } from "../../utils/CacheManager";
+import { CacheKeys } from "../../constants/CacheKeys";
+
+/**
+ * Validates a regex pattern string.
+ * Returns the pattern if valid, or null if invalid.
+ */
+function validateRegex(pattern: string): string | null {
+    try {
+        new RegExp(pattern);
+        return pattern;
+    } catch {
+        return null;
+    }
+}
 
 export default <BaseCommand>{
     data: new SlashCommandBuilder()
         .setName("arespadd")
-        .setDescription("Adds an auto responder to the bot")
+        .setDescription("Add an auto-responder — automatically reply to messages matching a trigger")
         .setContexts([
             InteractionContextType.Guild
         ])
@@ -32,27 +46,33 @@ export default <BaseCommand>{
         .addStringOption(option =>
             option
                 .setName("trigger")
-                .setDescription("The trigger word/phrase that will activate the response")
+                .setDescription("The trigger word, phrase, or regex pattern")
                 .setRequired(true)
-                .setMaxLength(200)
+                .setMaxLength(500)
         )
         .addStringOption(option =>
             option
                 .setName("response")
-                .setDescription("The response message to send")
+                .setDescription("The response message to send when triggered")
                 .setRequired(true)
                 .setMaxLength(2000)
         )
         .addBooleanOption(option =>
             option
                 .setName("case-sensitive")
-                .setDescription("Whether the trigger should be case-sensitive (default: false)")
+                .setDescription("Whether the trigger is case-sensitive (default: false)")
                 .setRequired(false)
         )
         .addBooleanOption(option =>
             option
                 .setName("exact-match")
-                .setDescription("Whether to match the entire message or just check if it contains the trigger (default: false)")
+                .setDescription("Match the entire message instead of checking if it contains the trigger (default: false)")
+                .setRequired(false)
+        )
+        .addBooleanOption(option =>
+            option
+                .setName("use-regex")
+                .setDescription("Treat the trigger as a regex pattern (default: false)")
                 .setRequired(false)
         )
         .addBooleanOption(option =>
@@ -71,19 +91,42 @@ export default <BaseCommand>{
         .addStringOption(option =>
             option
                 .setName("embed-color")
-                .setDescription("Hex color for the embed (e.g., #FF0000 or FF0000, only used if use-embed is true)")
+                .setDescription("Hex color for the embed, e.g. #FF0000 (only used if use-embed is true)")
                 .setRequired(false)
                 .setMaxLength(7)
+        )
+        .addIntegerOption(option =>
+            option
+                .setName("cooldown")
+                .setDescription("Cooldown in seconds before this responder can trigger again (0 = none, default: 0)")
+                .setRequired(false)
+                .setMinValue(0)
+                .setMaxValue(3600)
+        )
+        .addIntegerOption(option =>
+            option
+                .setName("response-delay")
+                .setDescription("Delay in milliseconds before sending the response (0 = instant, default: 0)")
+                .setRequired(false)
+                .setMinValue(0)
+                .setMaxValue(10000)
+        )
+        .addBooleanOption(option =>
+            option
+                .setName("suppress-mentions")
+                .setDescription("Suppress @everyone and @here in responses (default: true)")
+                .setRequired(false)
         )
     ,
     config: {
         category: "auto-responder",
-        usage: "<channel> <trigger> <response> [case-sensitive] [exact-match] [use-embed] [embed-title] [embed-color]",
+        usage: "<channel> <trigger> <response> [case-sensitive] [exact-match] [use-regex] [use-embed] [embed-title] [embed-color] [cooldown] [response-delay] [suppress-mentions]",
         examples: [
             "/arespadd channel:#general trigger:hello response:Hi there!",
-            "/arespadd channel:#support trigger:help response:How can I assist you?",
-            "/arespadd channel:#bot trigger:!rules response:Please read our rules!",
-            "/arespadd channel:#announcements trigger:welcome response:Welcome to the server! use-embed:true embed-title:Welcome! embed-color:#5865F2"
+            "/arespadd channel:#support trigger:help response:How can I assist you? cooldown:10",
+            "/arespadd channel:#bot trigger:^!rules$ response:Please read our rules! use-regex:true",
+            "/arespadd channel:#announcements trigger:welcome response:Welcome! use-embed:true embed-title:Welcome embed-color:#5865F2",
+            "/arespadd channel:#general trigger:good morning response:Good morning! ☀️ response-delay:500 suppress-mentions:true"
         ],
         permissions: ["Administrator"]
     },
@@ -97,18 +140,33 @@ export default <BaseCommand>{
             const response = options.getString("response", true);
             const caseSensitive = options.getBoolean("case-sensitive") ?? false;
             const exactMatch = options.getBoolean("exact-match") ?? false;
+            const useRegex = options.getBoolean("use-regex") ?? false;
             const useEmbed = options.getBoolean("use-embed") ?? false;
             const embedTitle = options.getString("embed-title");
             const embedColor = options.getString("embed-color");
+            const cooldown = options.getInteger("cooldown") ?? 0;
+            const responseDelay = options.getInteger("response-delay") ?? 0;
+            const suppressMentions = options.getBoolean("suppress-mentions") ?? true;
 
             if (!channel || !trigger || !response) return;
+
+            // Validate regex if enabled
+            if (useRegex) {
+                const validPattern = validateRegex(trigger);
+                if (!validPattern) {
+                    return interaction.reply({
+                        content: "❌ Invalid regex pattern. Please provide a valid regular expression.",
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+            }
 
             // Validate embed color if provided
             if (embedColor) {
                 const colorRegex = /^#?[0-9A-Fa-f]{6}$/;
                 if (!colorRegex.test(embedColor)) {
                     return interaction.reply({
-                        content: "Invalid embed color. Please provide a valid hex color (e.g., #FF0000 or FF0000).",
+                        content: "❌ Invalid embed color. Provide a valid hex color (e.g., #FF0000 or FF0000).",
                         flags: MessageFlags.Ephemeral
                     });
                 }
@@ -120,19 +178,19 @@ export default <BaseCommand>{
             // Validate trigger and response
             if (trigger.trim().length === 0) {
                 return interaction.reply({
-                    content: "Trigger cannot be empty.",
+                    content: "❌ Trigger cannot be empty.",
                     flags: MessageFlags.Ephemeral
                 });
             }
 
             if (response.trim().length === 0) {
                 return interaction.reply({
-                    content: "Response cannot be empty.",
+                    content: "❌ Response cannot be empty.",
                     flags: MessageFlags.Ephemeral
                 });
             }
 
-            // Check if auto responder already exists for this channel and trigger
+            // Check for duplicate trigger in this channel
             const existingAutoResponder = await AutoResponderModel.findOne({
                 guildID: interaction.guild.id,
                 channelID: channel.id,
@@ -141,79 +199,68 @@ export default <BaseCommand>{
 
             if (existingAutoResponder) {
                 return interaction.reply({
-                    content: "An auto responder with this trigger already exists in this channel. Please delete it first or use a different trigger.",
+                    content: "⚠️ An auto-responder with this trigger already exists in this channel. Delete it first or use a different trigger.",
                     flags: MessageFlags.Ephemeral
                 });
             }
 
-            // Create new auto responder
+            // Create the auto-responder
             const newAutoResponder = new AutoResponderModel({
                 guildID: interaction.guild.id,
                 channelID: channel.id,
-                trigger: trigger,
-                response: response,
-                caseSensitive: caseSensitive,
-                exactMatch: exactMatch,
-                useEmbed: useEmbed,
-                embedTitle: embedTitle,
+                trigger,
+                response,
+                caseSensitive,
+                exactMatch,
+                useRegex,
+                useEmbed,
+                embedTitle: embedTitle || undefined,
                 embedColor: normalizedColor || "#5865F2",
+                cooldown,
+                responseDelay,
+                suppressMentions,
                 authorID: interaction.user.id
             });
 
             await newAutoResponder.save();
 
-            // Clear cache
-            await redis.del(`autoresponder:${interaction.guildId}`);
+            // Invalidate cache
+            const cacheManager = CacheManager.getInstance();
+            await cacheManager.delete(CacheKeys.autoResponder.channel(interaction.guild.id, channel.id));
+            await cacheManager.delete(CacheKeys.autoResponder.all(interaction.guild.id));
 
-            await interaction.reply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle("Auto Responder Added")
-                        .setDescription(`Auto responder has been added to <#${channel.id}>`)
-                        .addFields([
-                            {
-                                name: "Trigger",
-                                value: `\`${trigger}\``
-                            },
-                            {
-                                name: "Response",
-                                value: response.length > 1024 ? response.substring(0, 1021) + "..." : response
-                            },
-                            {
-                                name: "Case Sensitive",
-                                value: caseSensitive ? "Yes" : "No",
-                                inline: true
-                            },
-                            {
-                                name: "Exact Match",
-                                value: exactMatch ? "Yes" : "No",
-                                inline: true
-                            },
-                            {
-                                name: "Use Embed",
-                                value: useEmbed ? "Yes" : "No",
-                                inline: true
-                            },
-                            ...(useEmbed && embedTitle ? [{
-                                name: "Embed Title",
-                                value: embedTitle,
-                                inline: true
-                            }] : []),
-                            ...(useEmbed ? [{
-                                name: "Embed Color",
-                                value: normalizedColor || "#5865F2",
-                                inline: true
-                            }] : []),
-                            {
-                                name: "Author",
-                                value: `<@${interaction.user.id}>`,
-                                inline: true
-                            }
-                        ])
-                        .setColor("Green")
-                        .setTimestamp()
-                ]
-            });
+            // Build response embed
+            const fields: { name: string; value: string; inline?: boolean }[] = [
+                { name: "Trigger", value: `\`${trigger}\``, inline: false },
+                { name: "Response", value: response.length > 1024 ? response.substring(0, 1021) + "..." : response, inline: false },
+                { name: "Case Sensitive", value: caseSensitive ? "Yes" : "No", inline: true },
+                { name: "Exact Match", value: exactMatch ? "Yes" : "No", inline: true },
+                { name: "Regex", value: useRegex ? "Yes" : "No", inline: true },
+                { name: "Use Embed", value: useEmbed ? "Yes" : "No", inline: true }
+            ];
+
+            if (useEmbed && embedTitle) {
+                fields.push({ name: "Embed Title", value: embedTitle, inline: true });
+            }
+            if (useEmbed) {
+                fields.push({ name: "Embed Color", value: normalizedColor || "#5865F2", inline: true });
+            }
+            if (cooldown > 0) {
+                fields.push({ name: "Cooldown", value: `${cooldown}s`, inline: true });
+            }
+            if (responseDelay > 0) {
+                fields.push({ name: "Response Delay", value: `${responseDelay}ms`, inline: true });
+            }
+            fields.push({ name: "Suppress Mentions", value: suppressMentions ? "Yes" : "No", inline: true });
+
+            const embed = new EmbedBuilder()
+                .setTitle("✅ Auto-Responder Added")
+                .setDescription(`Auto-responder configured for <#${channel.id}>`)
+                .addFields(fields)
+                .setColor("Green")
+                .setTimestamp();
+
+            await interaction.reply({ embeds: [embed] });
         } catch (error) {
             Logger.error(`Error in arespadd command: ${error}`);
             await interaction.reply({

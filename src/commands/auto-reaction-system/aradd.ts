@@ -10,12 +10,89 @@ import {
 import { BaseCommand } from "../../interfaces";
 import AutoReactionModel, { IEmojiReaction } from "../../models/AutoReactionModel";
 import Logger from "../../features/Logger";
-import { redis } from "../../features/RedisDB";
+import { CacheManager } from "../../utils/CacheManager";
+import { CacheKeys } from "../../constants/CacheKeys";
+
+// Regex patterns for emoji parsing
+const CUSTOM_EMOJI_REGEX = /<(a?):(.+?):(\d{17,19})>/;
+const UNICODE_EMOJI_REGEX = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/;
+
+interface ParsedEmoji {
+    emojiID?: string;
+    name: string;
+    animated: boolean;
+    isUnicode: boolean;
+    raw: string;
+}
+
+/**
+ * Parses a single emoji string into a structured object.
+ * Supports both custom Discord emojis and Unicode emojis.
+ */
+function parseEmoji(emoji: string, guild: any): ParsedEmoji | null {
+    const trimmed = emoji.trim();
+    if (!trimmed) return null;
+
+    // Try custom emoji first
+    const customMatch = trimmed.match(CUSTOM_EMOJI_REGEX);
+    if (customMatch) {
+        const animated = customMatch[1] === 'a';
+        const name = customMatch[2];
+        const emojiId = customMatch[3];
+
+        // Verify the emoji exists in this guild
+        if (!guild.emojis.cache.has(emojiId)) {
+            return null;
+        }
+
+        return {
+            emojiID: emojiId,
+            name,
+            animated,
+            isUnicode: false,
+            raw: trimmed
+        };
+    }
+
+    // Try unicode emoji
+    if (UNICODE_EMOJI_REGEX.test(trimmed)) {
+        return {
+            name: trimmed,
+            animated: false,
+            isUnicode: true,
+            raw: trimmed
+        };
+    }
+
+    return null;
+}
+
+/**
+ * Parses a space-separated string of emojis, returning valid ones and invalid ones separately.
+ */
+function parseEmojisInput(input: string, guild: any): { valid: ParsedEmoji[]; invalid: string[] } {
+    const tokens = input.split(/\s+/).filter(t => t.trim());
+    const valid: ParsedEmoji[] = [];
+    const invalid: string[] = [];
+    const seen = new Set<string>();
+
+    for (const token of tokens) {
+        const parsed = parseEmoji(token, guild);
+        if (parsed && !seen.has(parsed.raw)) {
+            seen.add(parsed.raw);
+            valid.push(parsed);
+        } else if (!parsed) {
+            invalid.push(token);
+        }
+    }
+
+    return { valid, invalid };
+}
 
 export default <BaseCommand>{
     data: new SlashCommandBuilder()
         .setName("aradd")
-        .setDescription("Adds an auto reaction to the bot")
+        .setDescription("Add auto-reactions to a channel — every message will get automatic emoji reactions")
         .setContexts([
             InteractionContextType.Guild
         ])
@@ -25,24 +102,38 @@ export default <BaseCommand>{
         .addChannelOption(option =>
             option
                 .setName("channel")
-                .setDescription("The channel you want the auto reaction to be in")
+                .setDescription("The channel to add auto-reactions to")
                 .setRequired(true)
                 .addChannelTypes(ChannelType.GuildText)
         )
         .addStringOption(option =>
             option
                 .setName("emojis")
-                .setDescription("The emojis you want to react with (separated by space)")
+                .setDescription("Emojis to react with, separated by spaces (e.g., '😄 👍 <:custom:123>')")
                 .setRequired(true)
+        )
+        .addIntegerOption(option =>
+            option
+                .setName("cooldown")
+                .setDescription("Cooldown in seconds between reactions (0 = no cooldown, default: 0)")
+                .setRequired(false)
+                .setMinValue(0)
+                .setMaxValue(3600)
+        )
+        .addBooleanOption(option =>
+            option
+                .setName("ignore-bots")
+                .setDescription("Whether to ignore messages from bots (default: true)")
+                .setRequired(false)
         )
     ,
     config: {
         category: "auto-reaction",
-        usage: "<channel ID> <emojis>",
+        usage: "<channel> <emojis> [cooldown] [ignore-bots]",
         examples: [
-            "add-auto-reaction 123456789012345678 😄",
-            "add-auto-reaction 123456789012345678 <:animatedemoji>",
-            "add-auto-reaction 123456789012345678 😄 <:animatedemoji>"
+            "/aradd channel:#general emojis:😄 👍 🎉",
+            "/aradd channel:#starboard emojis:⭐ 🌟 cooldown:5",
+            "/aradd channel:#welcome emojis:👋 <:custom_emoji:123456789> ignore-bots:true"
         ],
         permissions: ["Administrator"]
     },
@@ -50,126 +141,114 @@ export default <BaseCommand>{
         if (!interaction.guild) return;
 
         try {
-            const options = interaction.options;
-            const channel = options.getChannel("channel", true, [ChannelType.GuildText]);
-            const emojis = options.getString("emojis", true);
+            const channel = interaction.options.getChannel("channel", true, [ChannelType.GuildText]);
+            const emojisInput = interaction.options.getString("emojis", true);
+            const cooldown = interaction.options.getInteger("cooldown") ?? 0;
+            const ignoreBots = interaction.options.getBoolean("ignore-bots") ?? true;
 
-            if (!channel || !emojis) return;
-
-            const emojisArray = emojis.split(" ").filter(emoji => emoji.trim());
-
-            if (emojisArray.length === 0) {
+            if (!channel) {
                 return interaction.reply({
-                    content: "Please provide at least one valid emoji.",
+                    content: "❌ Invalid channel specified.",
                     flags: MessageFlags.Ephemeral
                 });
             }
 
-            if (emojisArray.length > 20) {
+            // Parse emojis
+            const { valid: parsedEmojis, invalid: invalidEmojis } = parseEmojisInput(emojisInput, interaction.guild);
+
+            if (parsedEmojis.length === 0) {
                 return interaction.reply({
-                    content: "You can only add up to 20 emojis per auto reaction.",
+                    content: "❌ No valid emojis found. Provide Unicode emojis (😄) or custom server emojis (`<:name:id>`).",
                     flags: MessageFlags.Ephemeral
                 });
             }
 
-            // Parse and validate emojis
-            const parsedEmojis: IEmojiReaction[] = [];
-            const emojiRegex = /^(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|<a?:.+?:\d{17,19}>)$/;
-            
-            for (const emoji of emojisArray) {
-                const customEmojiMatch = emoji.match(/<(a?):(.+?):(\d{17,19})>/);
-                
-                if (customEmojiMatch) {
-                    // Custom emoji
-                    const animated = customEmojiMatch[1] === 'a';
-                    const name = customEmojiMatch[2];
-                    const emojiId = customEmojiMatch[3];
-                    
-                    if (!interaction.guild.emojis.cache.has(emojiId)) {
-                        return interaction.reply({
-                            content: `Custom emoji \`${emoji}\` is not from this server.`,
-                            flags: MessageFlags.Ephemeral
-                        });
-                    }
-                    
-                    parsedEmojis.push({
-                        emojiID: emojiId,
-                        name,
-                        animated,
-                        isUnicode: false,
-                        raw: emoji
-                    });
-                } else if (emojiRegex.test(emoji)) {
-                    // Unicode emoji
-                    parsedEmojis.push({
-                        name: emoji,
-                        animated: false,
-                        isUnicode: true,
-                        raw: emoji
-                    });
-                } else {
-                    return interaction.reply({
-                        content: `Invalid emoji: \`${emoji}\``,
-                        flags: MessageFlags.Ephemeral
-                    });
-                }
+            if (parsedEmojis.length > 20) {
+                return interaction.reply({
+                    content: `❌ Too many emojis (${parsedEmojis.length}). Maximum is 20 per channel.`,
+                    flags: MessageFlags.Ephemeral
+                });
             }
 
-            // Check if auto reaction already exists for this channel
-            const existingAutoReaction = await AutoReactionModel.findOne({
+            // Check for existing auto-reaction in this channel
+            const existing = await AutoReactionModel.findOne({
                 guildID: interaction.guild.id,
                 channelID: channel.id
             });
 
-            if (existingAutoReaction) {
+            if (existing) {
                 return interaction.reply({
-                    content: "Auto reaction already exists in this channel. Please delete it first or use a different channel.",
+                    content: `⚠️ Auto-reaction already exists in <#${channel.id}>. Use \`/ardelete\` first to remove it.`,
                     flags: MessageFlags.Ephemeral
                 });
             }
 
-            // Create new auto reaction
+            // Create the auto-reaction
             const newAutoReaction = new AutoReactionModel({
                 guildID: interaction.guild.id,
                 channelID: channel.id,
-                emojis: parsedEmojis,
-                authorID: interaction.user.id
+                emojis: parsedEmojis as IEmojiReaction[],
+                authorID: interaction.user.id,
+                cooldown,
+                ignoreBots
             });
 
             await newAutoReaction.save();
 
-            // Clear cache
-            await redis.del(`guild:${interaction.guildId}`);
+            // Invalidate cache
+            const cacheManager = CacheManager.getInstance();
+            await cacheManager.delete(CacheKeys.autoReaction.channel(interaction.guild.id, channel.id));
+            await cacheManager.delete(CacheKeys.autoReaction.all(interaction.guild.id));
 
-            await interaction.reply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle("Auto Reaction Added")
-                        .setDescription(`Auto reaction has been added to <#${channel.id}>`)
-                        .addFields([
-                            {
-                                name: "Emojis",
-                                value: parsedEmojis.map(e => e.raw).join(" ")
-                            },
-                            {
-                                name: "Author",
-                                value: `<@${interaction.user.id}>`,
-                                inline: true
-                            },
-                            {
-                                name: "Total Emojis",
-                                value: `${parsedEmojis.length}`,
-                                inline: true
-                            }
-                        ])
-                        .setColor("Green")
-                        .setTimestamp()
-                ]
-            });
+            // Build response embed
+            const embed = new EmbedBuilder()
+                .setTitle("✅ Auto-Reaction Added")
+                .setDescription(`Auto-reaction configured for <#${channel.id}>`)
+                .addFields([
+                    {
+                        name: "Emojis",
+                        value: parsedEmojis.map(e => e.raw).join(" "),
+                        inline: false
+                    },
+                    {
+                        name: "Total Emojis",
+                        value: `${parsedEmojis.length}`,
+                        inline: true
+                    },
+                    {
+                        name: "Cooldown",
+                        value: cooldown > 0 ? `${cooldown}s` : "None",
+                        inline: true
+                    },
+                    {
+                        name: "Ignore Bots",
+                        value: ignoreBots ? "Yes" : "No",
+                        inline: true
+                    },
+                    {
+                        name: "Author",
+                        value: `<@${interaction.user.id}>`,
+                        inline: true
+                    }
+                ])
+                .setColor("Green")
+                .setTimestamp();
+
+            // Warn about invalid emojis if any
+            if (invalidEmojis.length > 0) {
+                embed.addFields({
+                    name: "⚠️ Skipped Invalid",
+                    value: invalidEmojis.map(e => `\`${e}\``).join(", "),
+                    inline: false
+                });
+                embed.setColor("Yellow");
+            }
+
+            await interaction.reply({ embeds: [embed] });
         } catch (error) {
             Logger.error(`Error in aradd command: ${error}`);
             await interaction.reply({
-                content: "An error occurred while adding the auto reaction.",
+                content: "❌ An unexpected error occurred while adding the auto-reaction.",
                 flags: MessageFlags.Ephemeral
             }).catch(() => null);
         }

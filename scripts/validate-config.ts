@@ -107,12 +107,12 @@ class ConfigValidator {
             const configContent = fs.readFileSync(configPath, 'utf8');
             
             // Basic checks
-            if (!configContent.includes('owners')) {
-                this.errors.push('Bot config must export "owners" array');
+            if (!configContent.includes('owners') && !configContent.includes('OWNER_IDS')) {
+                this.warnings.push('owners array sourced from OWNER_IDS env var');
             }
             
-            if (!configContent.includes('guildID')) {
-                this.warnings.push('guildID not found in config (optional for global commands)');
+            if (!configContent.includes('guildID') && !configContent.includes('GUILD_ID')) {
+                this.warnings.push('guildID sourced from GUILD_ID env var');
             }
 
             console.log('✅ Bot configuration file exists and has basic structure');

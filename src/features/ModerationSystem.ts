@@ -361,4 +361,61 @@ export default class ModerationSystem {
             Logger.error(`Error in warning escalation for user ${user.id} in guild ${guild.id}: ${error}`);
         }
     }
+
+    // Get all warnings for a user
+    static async getUserWarnings(guildID: string, userID: string) {
+        return await ModerationModel.find({
+            guildID,
+            userID,
+            type: "warn"
+        }).sort({ createdAt: -1 });
+    }
+
+    // Get a specific warning by case ID
+    static async getWarningByCaseID(guildID: string, caseID: string) {
+        return await ModerationModel.findOne({
+            guildID,
+            caseID,
+            type: "warn"
+        });
+    }
+
+    // Remove a specific warning
+    static async removeWarning(guildID: string, caseID: string, removedBy: string, removalReason: string): Promise<{ success: boolean; message: string; userID?: string; originalReason?: string; remainingCount?: number }> {
+        const warning = await ModerationModel.findOne({ guildID, caseID, type: "warn" });
+        if (!warning) {
+            return { success: false, message: "Warning not found." };
+        }
+
+        await ModerationModel.updateOne({ guildID, caseID }, {
+            active: false,
+            removalReason,
+            removedBy,
+            removedAt: new Date()
+        });
+
+        const remainingCount = await this.getWarningCount(guildID, warning.userID);
+
+        return {
+            success: true,
+            message: "Warning removed.",
+            userID: warning.userID,
+            originalReason: warning.reason,
+            remainingCount
+        };
+    }
+
+    // Clear all warnings for a user
+    static async clearAllWarnings(guildID: string, userID: string, clearedBy: string, reason: string): Promise<{ success: boolean; message: string; clearedCount?: number }> {
+        const result = await ModerationModel.updateMany(
+            { guildID, userID, type: "warn", active: true },
+            { active: false, removalReason: `Bulk clear: ${reason}`, removedBy: clearedBy, removedAt: new Date() }
+        );
+
+        return {
+            success: true,
+            message: "All warnings cleared.",
+            clearedCount: result.modifiedCount
+        };
+    }
 }

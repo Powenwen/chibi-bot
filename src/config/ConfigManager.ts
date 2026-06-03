@@ -7,6 +7,7 @@ const BotConfigSchema = z.object({
     token: z.string().min(1, 'Bot token is required'),
     clientId: z.string().min(1, 'Client ID is required'),
     guildId: z.string().min(1, 'Guild ID is required'),
+    ownerIds: z.array(z.string()).default([]),
     environment: z.enum(['development', 'production', 'test']).default('development'),
     database: z.object({
         mongodb: z.object({
@@ -78,6 +79,7 @@ export class ConfigManager {
                 token: process.env.TOKEN,
                 clientId: process.env.CLIENT_ID,
                 guildId: process.env.GUILD_ID,
+                ownerIds: process.env.OWNER_IDS ? JSON.parse(process.env.OWNER_IDS) : undefined,
                 environment: process.env.NODE_ENV,
                 database: {
                     mongodb: {

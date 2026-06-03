@@ -58,15 +58,15 @@
     "bun": ">=1.0.0"
   },
   "dependencies": {
-    "discord.js": "^14.22.1",
-    "dotenv": "^16.4.5",
-    "ioredis": "^5.4.2",
-    "mongoose": "^8.8.0",
-    "zod": "^3.24.2"
+    "discord.js": "^14.26.4",
+    "dotenv": "^16.6.1",
+    "ioredis": "^5.11.0",
+    "mongoose": "^8.24.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/node": "^22.15.30",
-    "typedoc": "^0.25.0",
+    "@types/node": "^22.19.19",
+    "typedoc": "^0.25.13",
     "typescript": "5.8.3"
   }
 }

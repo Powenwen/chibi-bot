@@ -13,6 +13,8 @@ export interface IAutoReaction extends Document {
     channelID: string;
     emojis: IEmojiReaction[];
     authorID: string;
+    cooldown: number;
+    ignoreBots: boolean;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -64,6 +66,16 @@ const AutoReactionSchema = new Schema<IAutoReaction>({
     authorID: {
         type: String,
         required: true
+    },
+    cooldown: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 3600
+    },
+    ignoreBots: {
+        type: Boolean,
+        default: true
     },
     createdAt: {
         type: Date,

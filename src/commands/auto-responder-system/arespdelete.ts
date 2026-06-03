@@ -1,7 +1,7 @@
 import {
     ChatInputCommandInteraction,
     SlashCommandBuilder,
-    EmbedBuilder, 
+    EmbedBuilder,
     InteractionContextType,
     ApplicationIntegrationType,
     ChannelType,
@@ -10,12 +10,13 @@ import {
 import { BaseCommand } from "../../interfaces";
 import AutoResponderModel from "../../models/AutoResponderModel";
 import Logger from "../../features/Logger";
-import { redis } from "../../features/RedisDB";
+import { CacheManager } from "../../utils/CacheManager";
+import { CacheKeys } from "../../constants/CacheKeys";
 
 export default <BaseCommand>{
     data: new SlashCommandBuilder()
         .setName("arespdelete")
-        .setDescription("Delete an auto responder from the bot")
+        .setDescription("Delete an auto-responder from a channel")
         .setContexts([
             InteractionContextType.Guild
         ])
@@ -25,14 +26,14 @@ export default <BaseCommand>{
         .addChannelOption(option =>
             option
                 .setName("channel")
-                .setDescription("The channel you want to delete the auto responder from")
+                .setDescription("The channel to delete the auto-responder from")
                 .setRequired(true)
                 .addChannelTypes(ChannelType.GuildText)
         )
         .addStringOption(option =>
             option
                 .setName("trigger")
-                .setDescription("The trigger of the auto responder to delete")
+                .setDescription("The trigger of the auto-responder to delete")
                 .setRequired(true)
         ),
     config: {
@@ -48,54 +49,73 @@ export default <BaseCommand>{
         if (!interaction.guild) return;
 
         try {
-            const options = interaction.options;
-            const channel = options.getChannel("channel", true, [ChannelType.GuildText]);
-            const trigger = options.getString("trigger", true);
+            const channel = interaction.options.getChannel("channel", true, [ChannelType.GuildText]);
+            const trigger = interaction.options.getString("trigger", true);
 
             if (!channel) return;
 
-            const autoResponder = await AutoResponderModel.findOne({ 
-                guildID: interaction.guildId, 
+            // Try exact match first, then case-insensitive
+            let autoResponder = await AutoResponderModel.findOne({
+                guildID: interaction.guild.id,
                 channelID: channel.id,
-                trigger: trigger
+                trigger
             });
 
             if (!autoResponder) {
-                // Try case-insensitive search
-                const caseInsensitiveResponder = await AutoResponderModel.findOne({
-                    guildID: interaction.guildId,
+                autoResponder = await AutoResponderModel.findOne({
+                    guildID: interaction.guild.id,
                     channelID: channel.id,
                     trigger: { $regex: new RegExp(`^${trigger.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
                 });
-
-                if (caseInsensitiveResponder) {
-                    await caseInsensitiveResponder.deleteOne();
-                } else {
-                    return interaction.reply({
-                        content: "There is no auto responder with this trigger in this channel.",
-                        flags: MessageFlags.Ephemeral
-                    });
-                }
-            } else {
-                await autoResponder.deleteOne();
             }
 
-            // Clear cache
-            await redis.del(`autoresponder:${interaction.guildId}`);
+            if (!autoResponder) {
+                return interaction.reply({
+                    content: "⚠️ No auto-responder with that trigger found in this channel.",
+                    flags: MessageFlags.Ephemeral
+                });
+            }
 
-            await interaction.reply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle("Auto Responder Deleted")
-                        .setDescription(`The auto responder with trigger \`${trigger}\` in <#${channel.id}> has been deleted.`)
-                        .setColor("Red")
-                        .setTimestamp()
-                ]
-            });
+            // Store info before deletion
+            const deletedTrigger = autoResponder.trigger;
+            const wasEmbed = autoResponder.useEmbed;
+            const authorId = autoResponder.authorID;
+
+            await autoResponder.deleteOne();
+
+            // Invalidate cache
+            const cacheManager = CacheManager.getInstance();
+            await cacheManager.delete(CacheKeys.autoResponder.channel(interaction.guild.id, channel.id));
+            await cacheManager.delete(CacheKeys.autoResponder.all(interaction.guild.id));
+
+            const embed = new EmbedBuilder()
+                .setTitle("🗑️ Auto-Responder Deleted")
+                .setDescription(`Auto-responder removed from <#${channel.id}>`)
+                .addFields([
+                    {
+                        name: "Trigger",
+                        value: `\`${deletedTrigger}\``,
+                        inline: true
+                    },
+                    {
+                        name: "Was Embed",
+                        value: wasEmbed ? "Yes" : "No",
+                        inline: true
+                    },
+                    {
+                        name: "Added By",
+                        value: `<@${authorId}>`,
+                        inline: true
+                    }
+                ])
+                .setColor("Red")
+                .setTimestamp();
+
+            await interaction.reply({ embeds: [embed] });
         } catch (error) {
             Logger.error(`Error in arespdelete command: ${error}`);
             await interaction.reply({
-                content: "An error occurred while deleting the auto responder.",
+                content: "❌ An error occurred while deleting the auto-responder.",
                 flags: MessageFlags.Ephemeral
             }).catch(() => null);
         }

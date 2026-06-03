@@ -5,7 +5,6 @@ import {
     ApplicationIntegrationType,
     ChannelType,
     TextChannel,
-
     EmbedBuilder,
     ColorResolvable,
     MessageFlags
@@ -18,194 +17,180 @@ import Logger from "../../features/Logger";
 export default <BaseCommand>{
     data: new SlashCommandBuilder()
         .setName("smadd")
-        .setDescription("Add a sticky message to the bot")
-        .setContexts([
-            InteractionContextType.Guild
-        ])
-        .setIntegrationTypes([
-            ApplicationIntegrationType.GuildInstall
-        ])
-        .addStringOption(option =>
-            option
-                .setName("message")
-                .setDescription("The message ID or URL you want to make sticky")
+        .setDescription("Create a new sticky message that stays at the bottom of a channel")
+        .setContexts([InteractionContextType.Guild])
+        .setIntegrationTypes([ApplicationIntegrationType.GuildInstall])
+        .addChannelOption(option =>
+            option.setName("channel")
+                .setDescription("The channel for the sticky message")
                 .setRequired(true)
+                .addChannelTypes(ChannelType.GuildText)
         )
         .addStringOption(option =>
-            option
-                .setName("title")
+            option.setName("title")
                 .setDescription("The title of the sticky message")
                 .setRequired(true)
+                .setMaxLength(256)
         )
         .addStringOption(option =>
-            option
-                .setName("color")
-                .setDescription("The color of the sticky message")
+            option.setName("content")
+                .setDescription("The main content/description (max 4096 chars)")
+                .setRequired(true)
+                .setMaxLength(4096)
+        )
+        .addStringOption(option =>
+            option.setName("color")
+                .setDescription("Hex color for the embed (default: #5865F2)")
                 .setRequired(false)
+                .setMaxLength(7)
+        )
+        .addStringOption(option =>
+            option.setName("thumbnail")
+                .setDescription("Thumbnail URL")
+                .setRequired(false)
+        )
+        .addStringOption(option =>
+            option.setName("image")
+                .setDescription("Image URL")
+                .setRequired(false)
+        )
+        .addStringOption(option =>
+            option.setName("footer")
+                .setDescription("Footer text")
+                .setRequired(false)
+                .setMaxLength(2048)
         )
         .addIntegerOption(option =>
-            option
-                .setName("maxmessagecount")
-                .setDescription("The maximum number of messages before the sticky message is sent")
+            option.setName("max-messages")
+                .setDescription("Repost after N messages (0 = persistent, default: 0)")
                 .setRequired(false)
+                .setMinValue(0)
+                .setMaxValue(1000)
         )
-        .addChannelOption(option =>
-            option
-                .setName("channel")
-                .setDescription("The channel you want the sticky message to be sent to")
+        .addStringOption(option =>
+            option.setName("mode")
+                .setDescription("How the sticky message behaves")
                 .setRequired(false)
-                .addChannelTypes(ChannelType.GuildText)
+                .addChoices(
+                    { name: "Message Count (repost after N messages)", value: "message-count" },
+                    { name: "Persistent (always at bottom)", value: "persistent" }
+                )
+        )
+        .addRoleOption(option =>
+            option.setName("mention-role")
+                .setDescription("Role to ping when the sticky is reposted")
+                .setRequired(false)
         ),
     config: {
         category: "sticky-message",
-        usage: "<message ID> <channel> [options]",
-        examples: ["123456789012345678", "123456789012345678 #channel"],
+        usage: "<channel> <title> <content> [color] [thumbnail] [image] [footer] [max-messages] [mode] [mention-role]",
+        examples: [
+            "/smadd channel:#rules title:📜 Server Content:Please read our rules... color:#FF0000",
+            "/smadd channel:#info title:ℹ️ Info content:Welcome! max-messages:10 mode:message-count",
+            "/smadd channel:#announcements title:📢 Announcements content:Stay tuned! mention-role:@Members"
+        ],
         permissions: ["Administrator"]
     },
     async execute(interaction: ChatInputCommandInteraction) {
         if (!interaction.guild) return;
 
-        const options = interaction.options;
-        const messageInput = options.getString("message", true);
-        const color = options.getString("color") || "Aqua";
-        const channel = options.getChannel("channel") as TextChannel || interaction.channel as TextChannel;
-
-        if (!channel) {
-            return interaction.reply({
-                content: "Please provide a valid channel",
-                flags: MessageFlags.Ephemeral
-            });
-        }
-
-        // Parse message ID and channel ID from URL or ID
-        let messageId: string;
-        let messageChannelId: string | null = null;
-
-        // Check if input is a message URL
-        const urlMatch = messageInput.match(/discord\.com\/channels\/\d+\/(\d+)\/(\d+)/);
-        if (urlMatch) {
-            messageChannelId = urlMatch[1];
-            messageId = urlMatch[2];
-        } else {
-            // Assume it's just a message ID
-            messageId = messageInput;
-        }
-
-        // Defer reply since we might search multiple channels
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-        // Try to fetch the message
-        let messageExists = null;
-        let messageChannel: TextChannel | null = null;
-
-        if (messageChannelId) {
-            // We have a channel ID from URL, try to fetch directly
-            try {
-                const fetchedChannel = await interaction.guild.channels.fetch(messageChannelId);
-                if (fetchedChannel?.isTextBased() && fetchedChannel instanceof TextChannel) {
-                    messageChannel = fetchedChannel;
-                    if (!messageChannel) {
-                        await interaction.editReply({
-                            content: "❌ Could not find the specified channel from the message URL"
-                        });
-                        return;
-                    }
-                    messageExists = await messageChannel.messages.fetch(messageId).catch(() => null);
-                }
-            } catch {
-                // Channel not accessible or doesn't exist
-            }
-        }
-
-        // If we don't have the message yet, search all text channels
-        if (!messageExists) {
-            const textChannels = interaction.guild.channels.cache.filter(
-                ch => ch.isTextBased() && ch.type === ChannelType.GuildText
-            ) as Map<string, TextChannel>;
-
-            for (const [_, ch] of textChannels) {
-                try {
-                    messageExists = await ch.messages.fetch(messageId).catch(() => null);
-                    if (messageExists) {
-                        messageChannel = ch;
-                        break;
-                    }
-                } catch {
-                    // Can't access this channel, continue
-                    continue;
-                }
-            }
-        }
-
-        if (!messageExists || !messageChannel) {
-            return interaction.editReply({
-                content: "❌ Could not find the message. Make sure:\n" +
-                    "• The message ID is correct\n" +
-                    "• The message exists in this server\n" +
-                    "• I have permission to view the channel\n\n" +
-                    "💡 **Tip:** You can right-click a message and copy its link for easier use!"
-            });
-        }
-
-        // Check if the message is already a sticky message
-        const stickyMessageExists = await StickyMessage.getStickyMessageBy("messageID", messageId);
-
-        if (stickyMessageExists) {
-            return interaction.editReply({
-                content: "⚠️ The message provided is already a sticky message"
-            });
-        }
-
-        const customId = Utility.codeGen(6);
-
-        // Add the sticky message to the database
         try {
-            const embed = new EmbedBuilder()
-                .setTitle(options.getString("title", true))
-                .setDescription(messageExists.content)
-                .setColor(color as ColorResolvable)
-                .setThumbnail(interaction.client.user.displayAvatarURL())
-                .setTimestamp();
-    
-            const embedMessage = await channel.send({ embeds: [embed] });
+            const channel = interaction.options.getChannel("channel", true, [ChannelType.GuildText]) as TextChannel;
+            const title = interaction.options.getString("title", true);
+            const content = interaction.options.getString("content", true);
+            const color = interaction.options.getString("color") || "#5865F2";
+            const thumbnail = interaction.options.getString("thumbnail");
+            const image = interaction.options.getString("image");
+            const footer = interaction.options.getString("footer");
+            const maxMessages = interaction.options.getInteger("max-messages") ?? 0;
+            const mode = interaction.options.getString("mode") ?? "message-count";
+            const mentionRole = interaction.options.getRole("mention-role");
 
-            await StickyMessage.addStickyMessage(
-                interaction.guild.id,
-                channel.id,
-                messageId,
-                messageChannel.id,
-                customId,
-                interaction.user.id,
-                options.getString("title", true),
-                messageExists.content,
-                color,
-                embedMessage.id,
-                options.getInteger("maxmessagecount") || 0
-            ).catch(() => {
-                return interaction.editReply({
-                    content: "❌ An error occurred while adding the sticky message"
+            // Validate color
+            const colorRegex = /^#?[0-9A-Fa-f]{6}$/;
+            if (!colorRegex.test(color)) {
+                return interaction.reply({
+                    content: "❌ Invalid color. Use a valid hex code (e.g., #5865F2).",
+                    flags: MessageFlags.Ephemeral
                 });
+            }
+            const normalizedColor = color.startsWith("#") ? color : `#${color}`;
+
+            // Check if a sticky already exists in this channel
+            const existing = await StickyMessage.getStickyMessageByChannel(interaction.guild.id, channel.id);
+            if (existing) {
+                return interaction.reply({
+                    content: `⚠️ A sticky message already exists in <#${channel.id}> (ID: \`${existing.uniqueID}\`). Use \`/smedit\` to modify it or \`/smdelete\` to remove it first.`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+            const uniqueID = Utility.codeGen(6);
+
+            // Build the embed
+            const embed = new EmbedBuilder()
+                .setTitle(title)
+                .setDescription(content)
+                .setColor(normalizedColor as ColorResolvable);
+
+            if (thumbnail) embed.setThumbnail(thumbnail);
+            if (image) embed.setImage(image);
+            if (footer) embed.setFooter({ text: footer });
+
+            const sentMessage = await channel.send({ embeds: [embed] });
+
+            // Save to database
+            await StickyMessage.addStickyMessage({
+                guildID: interaction.guild.id,
+                channelID: channel.id,
+                messageID: sentMessage.id,
+                messageChannelID: channel.id,
+                uniqueID,
+                authorID: interaction.user.id,
+                title,
+                content,
+                color: normalizedColor,
+                thumbnailUrl: thumbnail || "",
+                imageUrl: image || "",
+                footer: { text: footer || "", iconUrl: "" },
+                author: { name: "", iconUrl: "", url: "" },
+                fields: [],
+                timestamp: false,
+                embedID: sentMessage.id,
+                maxMessageCount: maxMessages,
+                mode: mode as "message-count" | "interval" | "persistent",
+                intervalSeconds: 0,
+                enabled: true,
+                mentionRoleID: mentionRole?.id || ""
             });
+
+            const infoEmbed = new EmbedBuilder()
+                .setTitle("✅ Sticky Message Created")
+                .setDescription(`Sticky message posted in <#${channel.id}>`)
+                .addFields([
+                    { name: "ID", value: `\`${uniqueID}\``, inline: true },
+                    { name: "Channel", value: `<#${channel.id}>`, inline: true },
+                    { name: "Mode", value: mode === "persistent" ? "📌 Persistent" : `🔢 After ${maxMessages || 0} messages`, inline: true },
+                    { name: "Title", value: title, inline: false }
+                ])
+                .setColor("Green")
+                .setTimestamp();
+
+            infoEmbed.setFooter({ text: `Use /smedit to modify, /smdelete ${uniqueID} to remove` });
+
+            await interaction.editReply({ embeds: [infoEmbed] });
         } catch (error) {
-            Logger.error(`Error adding sticky message: ${error instanceof Error ? error.message : String(error)}`);
-            return interaction.editReply({
-                content: "❌ An error occurred while adding the sticky message"
+            Logger.error(`Error in smadd command: ${error}`);
+            await interaction.editReply({
+                content: "❌ An error occurred while creating the sticky message."
+            }).catch(() => {
+                interaction.reply({
+                    content: "❌ An error occurred while creating the sticky message.",
+                    flags: MessageFlags.Ephemeral
+                }).catch(() => null);
             });
         }
-
-        return interaction.editReply({
-            embeds: [
-                new EmbedBuilder()
-                    .setTitle("✅ Sticky Message Added")
-                    .setDescription(`The sticky message has been successfully added to <#${channel.id}>`)
-                    .addFields([
-                        { name: "Source Message", value: `[Jump to message](https://discord.com/channels/${interaction.guild.id}/${messageChannel.id}/${messageId})`, inline: true },
-                        { name: "Source Channel", value: `<#${messageChannel.id}>`, inline: true },
-                        { name: "Sticky Channel", value: `<#${channel.id}>`, inline: true }
-                    ])
-                    .setColor("Green")
-                    .setTimestamp()
-            ]
-        });
     }
-}
+};

@@ -1,7 +1,7 @@
-import { 
-    ChatInputCommandInteraction, 
-    SlashCommandBuilder, 
-    EmbedBuilder, 
+import {
+    ChatInputCommandInteraction,
+    SlashCommandBuilder,
+    EmbedBuilder,
     PermissionFlagsBits
 } from "discord.js";
 import { BaseCommand } from "../../interfaces";
@@ -28,7 +28,7 @@ const command: BaseCommand = {
         )
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     config: {
-        category: "moderation",
+        category: "auto-moderation",
         usage: "<action>",
         examples: [
             "/automod-cleanup action:cache",
@@ -56,32 +56,27 @@ const command: BaseCommand = {
                 .setColor('#3498DB')
                 .setTimestamp();
 
-            let description = [];
+            const description: string[] = [];
 
             switch (action) {
                 case "cache":
-                    // Clean up various caches
                     await Promise.all([
                         AntiSpam.cleanupTrackers(),
                         DuplicateFilter.cleanupHistory(),
                         RaidProtection.cleanupHistory()
                     ]);
-                    
                     description.push('✅ Cleaned up spam trackers');
                     description.push('✅ Cleaned up duplicate message history');
                     description.push('✅ Cleaned up raid protection trackers');
                     break;
 
                 case "stats":
-                    // Reset statistics
                     await AutoModerationManager.resetStatistics(guildId);
-                    
                     description.push('✅ Reset auto-moderation statistics');
                     description.push('⚠️ Historical data has been cleared');
                     break;
 
-                case "raid":
-                    // End raid protection if active
+                case "raid": {
                     const wasActive = await RaidProtection.isUnderRaidProtection(interaction.guild);
                     if (wasActive) {
                         const success = await RaidProtection.endRaidProtection(interaction.guild);
@@ -95,9 +90,9 @@ const command: BaseCommand = {
                         description.push('ℹ️ Raid protection is not currently active');
                     }
                     break;
+                }
 
                 case "full":
-                    // Full cleanup
                     await Promise.all([
                         AntiSpam.cleanupTrackers(),
                         DuplicateFilter.cleanupHistory(),
@@ -105,14 +100,11 @@ const command: BaseCommand = {
                         AutoModerationManager.resetStatistics(guildId),
                         AutoModerationLogger.flushAllBuffers()
                     ]);
-
-                    // End raid protection if active
                     const raidActive = await RaidProtection.isUnderRaidProtection(interaction.guild);
                     if (raidActive) {
                         await RaidProtection.endRaidProtection(interaction.guild);
                         description.push('✅ Ended active raid protection');
                     }
-
                     description.push('✅ Cleaned up all caches and trackers');
                     description.push('✅ Reset all statistics');
                     description.push('✅ Flushed log buffers');
@@ -125,7 +117,6 @@ const command: BaseCommand = {
 
             embed.setDescription(description.join('\n'));
 
-            // Add performance info
             const stats = await AutoModerationManager.getStatistics(guildId);
             if (stats && action !== "stats" && action !== "full") {
                 embed.addFields({
@@ -139,13 +130,12 @@ const command: BaseCommand = {
                 });
             }
 
-            embed.setFooter({ 
+            embed.setFooter({
                 text: `Cleanup performed by ${interaction.user.tag}`,
                 iconURL: interaction.user.displayAvatarURL()
             });
 
             await interaction.editReply({ embeds: [embed] });
-
         } catch (error) {
             console.error("Error in automod-cleanup command:", error);
             await interaction.editReply({

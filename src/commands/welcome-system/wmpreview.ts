@@ -5,7 +5,6 @@ import {
     InteractionContextType,
     ApplicationIntegrationType,
     MessageFlags,
-    ColorResolvable,
     GuildMember
 } from 'discord.js';
 import { BaseCommand } from '../../interfaces';
@@ -15,7 +14,7 @@ import Logger from '../../features/Logger';
 export default <BaseCommand>{
     data: new SlashCommandBuilder()
         .setName("wmpreview")
-        .setDescription("Preview the welcome message for the server")
+        .setDescription("Preview the welcome message that new members will see")
         .setContexts([
             InteractionContextType.Guild
         ])
@@ -33,47 +32,45 @@ export default <BaseCommand>{
 
         try {
             const guildID = interaction.guild.id;
-            const welcomeMessage = await WelcomeSystem.getWelcomeMessage(guildID);
-            if (!welcomeMessage) {
-                await interaction.reply({
-                    content: "No welcome message has been set for this server.",
+            const config = await WelcomeSystem.getWelcomeMessage(guildID);
+
+            if (!config) {
+                return interaction.reply({
+                    content: "⚠️ No welcome message configured. Use `/set-welcome-channel` to set one up.",
                     flags: MessageFlags.Ephemeral
                 });
-                return;
             }
 
-            const embed = new EmbedBuilder()
-                .setTitle(welcomeMessage.embed.title)
-                .setColor(welcomeMessage.embed.color as ColorResolvable);
+            const member = interaction.member as GuildMember;
+            const replacements = WelcomeSystem.getReplacements(member);
 
-            const description = WelcomeSystem.parseWelcomeDescription(
-                welcomeMessage.embed.description, 
-                interaction.member as GuildMember
-            );
+            // Build the preview embed
+            const embed = WelcomeSystem.buildEmbed(config, replacements, member, interaction.client.user);
 
-            embed.setDescription(description);
+            // Build info text
+            const infoLines: string[] = [];
+            infoLines.push(`**Status:** ${config.enabled ? "🟢 Enabled" : "🔴 Disabled"}`);
+            infoLines.push(`**Type:** ${config.type === "embed" ? "📋 Embed" : config.type === "text" ? "💬 Text" : "📋💬 Embed + Text"}`);
+            infoLines.push(`**Channel:** <#${config.channelID}>`);
+            if (config.dmEnabled) infoLines.push(`**DM Welcome:** ✅ Enabled`);
+            if (config.roleEnabled && config.roleIDs.length > 0) infoLines.push(`**Auto-Roles:** ${config.roleIDs.length} role(s)`);
+            if (config.embed.fields.length > 0) infoLines.push(`**Fields:** ${config.embed.fields.length}`);
 
-            if (welcomeMessage.embed.thumbnail) {
-                embed.setThumbnail(interaction.client.user.displayAvatarURL());
-            }
-
-            if (welcomeMessage.embed.footer.enabled) {
-                embed.setFooter({
-                    text: welcomeMessage.embed.footer.text
-                });
-                if (welcomeMessage.embed.footer.timestamp) {
-                    embed.setTimestamp();
-                }
-            }
+            const infoEmbed = new EmbedBuilder()
+                .setTitle("👁️ Welcome Message Preview")
+                .setDescription(infoLines.join("\n"))
+                .setColor("Greyple")
+                .setTimestamp();
 
             await interaction.reply({
-                embeds: [embed],
+                content: "Here's what new members will see:",
+                embeds: [infoEmbed, embed],
                 flags: MessageFlags.Ephemeral
             });
         } catch (error) {
             Logger.error(`Error in wmpreview command: ${error}`);
             await interaction.reply({
-                content: "An error occurred while generating the preview.",
+                content: "❌ An error occurred while generating the preview.",
                 flags: MessageFlags.Ephemeral
             }).catch(() => null);
         }

@@ -16,32 +16,32 @@ import { CacheKeys } from "../../constants/CacheKeys";
 
 export default <BaseCommand>{
     data: new SlashCommandBuilder()
-        .setName("approve-suggestion")
-        .setDescription("Approve a pending suggestion")
+        .setName("implement-suggestion")
+        .setDescription("Mark a suggestion as implemented (has been built/released)")
         .setContexts([InteractionContextType.Guild])
         .setIntegrationTypes([ApplicationIntegrationType.GuildInstall])
         .addStringOption(option =>
             option.setName("suggestion-id")
-                .setDescription("The ID of the suggestion to approve")
+                .setDescription("The ID of the suggestion to mark as implemented")
                 .setRequired(true)
         )
         .addStringOption(option =>
-            option.setName("reason")
-                .setDescription("Reason for approval (optional)")
+            option.setName("notes")
+                .setDescription("Implementation notes (e.g., version, details)")
                 .setRequired(false)
                 .setMaxLength(2000)
         )
         .addBooleanOption(option =>
             option.setName("notify-user")
-                .setDescription("DM the suggestion author about the approval (default: true)")
+                .setDescription("DM the suggestion author (default: true)")
                 .setRequired(false)
         ),
     config: {
         category: "suggestion-system",
-        usage: "<suggestion-id> [reason] [notify-user]",
+        usage: "<suggestion-id> [notes] [notify-user]",
         examples: [
-            "/approve-suggestion suggestion-id:1",
-            "/approve-suggestion suggestion-id:1 reason:Great idea, we'll implement this!"
+            "/implement-suggestion suggestion-id:1",
+            "/implement-suggestion suggestion-id:1 notes:Released in v2.5.0!"
         ],
         permissions: ["ManageMessages"]
     },
@@ -50,7 +50,7 @@ export default <BaseCommand>{
 
         try {
             const suggestionID = interaction.options.getString("suggestion-id", true);
-            const reason = interaction.options.getString("reason");
+            const notes = interaction.options.getString("notes");
             const notifyUser = interaction.options.getBoolean("notify-user") ?? true;
             const guildID = interaction.guild.id;
 
@@ -62,14 +62,13 @@ export default <BaseCommand>{
                 });
             }
 
-            if (suggestion.status !== "Pending") {
+            if (suggestion.status === "Implemented") {
                 return interaction.reply({
-                    content: `⚠️ Suggestion #${suggestionID} has already been **${suggestion.status}**.`,
+                    content: `⚠️ Suggestion #${suggestionID} is already marked as implemented.`,
                     flags: MessageFlags.Ephemeral
                 });
             }
 
-            const channelConfig = await SuggestionChannelModel.findOne({ guildID });
             const channel = await interaction.client.channels.fetch(suggestion.channelID);
             if (!channel || !(channel instanceof TextChannel)) {
                 return interaction.reply({
@@ -78,7 +77,6 @@ export default <BaseCommand>{
                 });
             }
 
-            // Fetch and update the original message
             const originalMessage = await channel.messages.fetch(suggestion.messageID).catch(() => null);
 
             const upvoteCount = suggestion.upvotes?.length || 0;
@@ -86,20 +84,27 @@ export default <BaseCommand>{
             const netVotes = upvoteCount - downvoteCount;
 
             const embed = new EmbedBuilder()
-                .setTitle(`✅ Suggestion #${suggestionID} — Approved`)
+                .setTitle(`🚀 Suggestion #${suggestionID} — Implemented`)
                 .setDescription(suggestion.suggestion)
-                .setColor("#57F287")
+                .setColor("#5865F2")
                 .addFields([
                     { name: "Category", value: suggestion.category || "General", inline: true },
                     { name: "Priority", value: suggestion.priority || "Medium", inline: true },
-                    { name: "Votes", value: `👍 ${upvoteCount} | 👎 ${downvoteCount} | Net: ${netVotes >= 0 ? "+" : ""}${netVotes}`, inline: true },
-                    { name: "Response", value: reason || "No reason provided.", inline: false }
+                    { name: "Votes", value: `👍 ${upvoteCount} | 👎 ${downvoteCount} | Net: ${netVotes >= 0 ? "+" : ""}${netVotes}`, inline: true }
                 ])
                 .setFooter({
-                    text: `Approved by ${interaction.user.tag}`,
+                    text: `Implemented by ${interaction.user.tag}`,
                     iconURL: interaction.user.displayAvatarURL()
                 })
                 .setTimestamp();
+
+            if (notes) {
+                embed.addFields({ name: "📝 Implementation Notes", value: notes, inline: false });
+            }
+
+            if (suggestion.response) {
+                embed.addFields({ name: "Previous Response", value: suggestion.response, inline: false });
+            }
 
             if (suggestion.attachmentUrl) {
                 embed.setImage(suggestion.attachmentUrl);
@@ -110,50 +115,55 @@ export default <BaseCommand>{
             }
             const newMessage = await channel.send({ embeds: [embed] });
 
-            // Update database
             await SuggestionModel.updateOne(
                 { guildID, suggestionID },
                 {
-                    status: "Approved",
-                    response: reason || "No reason provided.",
+                    status: "Implemented",
+                    response: notes || suggestion.response || "Implemented!",
                     responseAuthorID: interaction.user.id,
                     messageID: newMessage.id,
-                    channelID: newMessage.channel.id
+                    channelID: newMessage.channel.id,
+                    implementedAt: new Date(),
+                    implementedBy: interaction.user.id
                 }
             );
 
-            // Invalidate cache
             const cacheManager = CacheManager.getInstance();
             await cacheManager.delete(CacheKeys.suggestion.single(guildID, suggestionID));
+            await cacheManager.delete(CacheKeys.suggestion.all(guildID));
             await cacheManager.delete(CacheKeys.suggestion.pending(guildID));
+            await cacheManager.delete(CacheKeys.suggestion.approved(guildID));
 
             // Notify user via DM
-            if (notifyUser && !suggestion.anonymous && channelConfig?.dmOnResponse) {
-                try {
-                    const author = await interaction.client.users.fetch(suggestion.authorID);
-                    const dmEmbed = new EmbedBuilder()
-                        .setTitle("✅ Your Suggestion Was Approved!")
-                        .setDescription(`Your suggestion **#${suggestionID}** in **${interaction.guild.name}** has been approved.`)
-                        .addFields([
-                            { name: "Suggestion", value: suggestion.suggestion.substring(0, 1024), inline: false },
-                            { name: "Response", value: reason || "No reason provided.", inline: false }
-                        ])
-                        .setColor("#57F287")
-                        .setTimestamp();
-                    await author.send({ embeds: [dmEmbed] });
-                } catch {
-                    // User may have DMs disabled
+            if (notifyUser && !suggestion.anonymous) {
+                const channelConfig = await SuggestionChannelModel.findOne({ guildID });
+                if (channelConfig?.dmOnResponse) {
+                    try {
+                        const author = await interaction.client.users.fetch(suggestion.authorID);
+                        const dmEmbed = new EmbedBuilder()
+                            .setTitle("🚀 Your Suggestion Was Implemented!")
+                            .setDescription(`Your suggestion **#${suggestionID}** in **${interaction.guild.name}** has been implemented!`)
+                            .addFields([
+                                { name: "Suggestion", value: suggestion.suggestion.substring(0, 1024), inline: false },
+                                ...(notes ? [{ name: "Notes", value: notes, inline: false }] : [])
+                            ])
+                            .setColor("#5865F2")
+                            .setTimestamp();
+                        await author.send({ embeds: [dmEmbed] });
+                    } catch {
+                        // DMs disabled
+                    }
                 }
             }
 
             await interaction.reply({
-                content: `✅ Suggestion #${suggestionID} has been approved.`,
+                content: `🚀 Suggestion #${suggestionID} has been marked as implemented.`,
                 flags: MessageFlags.Ephemeral
             });
         } catch (error) {
-            Logger.error(`Error in approve-suggestion command: ${error}`);
+            Logger.error(`Error in implement-suggestion command: ${error}`);
             await interaction.reply({
-                content: "❌ An error occurred while approving the suggestion.",
+                content: "❌ An error occurred while marking the suggestion as implemented.",
                 flags: MessageFlags.Ephemeral
             }).catch(() => null);
         }

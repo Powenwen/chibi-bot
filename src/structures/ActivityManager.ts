@@ -8,16 +8,32 @@ export class ActivityManager {
     private client: ChibiClient;
     private activityInterval?: NodeJS.Timeout;
     private currentActivityIndex: number = 0;
-    private activities: { name: string; type: number }[] = [
-        { name: "over Chibimation Server!", type: 3 }, // Watching
-        { name: "with the Chibimation Sisters!", type: 0 } // Playing
-    ];
+    private activities: { name: string; type: number }[];
+
+    private static parseActivities(): { name: string; type: number }[] {
+        const raw = process.env.BOT_ACTIVITIES;
+        if (raw) {
+            try {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    return parsed;
+                }
+            } catch {
+                Logger.warn('BOT_ACTIVITIES is not valid JSON, using defaults');
+            }
+        }
+        return [
+            { name: process.env.BOT_ACTIVITY_NAME || "over your server!", type: 3 },
+            { name: "with your commands!", type: 0 }
+        ];
+    }
 
     /**
      * @param client The main ChibiClient instance.
      */
     constructor(client: ChibiClient) {
         this.client = client;
+        this.activities = ActivityManager.parseActivities();
     }
 
     /**

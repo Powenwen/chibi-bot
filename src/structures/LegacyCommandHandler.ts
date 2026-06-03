@@ -3,7 +3,7 @@ import { readdirSync, statSync } from "fs";
 import { join, extname } from "path";
 import ChibiClient from "./Client";
 import type { BaseLegacyCommand } from "../interfaces";
-import { owners } from "../config/config";
+
 
 export default class LegacyCommandHandler {
     public commands: Collection<string, BaseLegacyCommand> = new Collection();
@@ -111,7 +111,7 @@ export default class LegacyCommandHandler {
             }
 
             // Ignore if a non-developer is trying to run a dev command
-            if ((command.config.category === "dev") && !owners.includes(message.author.id)) return;
+            if ((command.config.category === "dev") && !this.client.config.owners.includes(message.author.id)) return;
 
             // Check permissions if specified
             if (command.config.permissions && command.config.permissions.length > 0) {

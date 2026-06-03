@@ -3,10 +3,11 @@
     /* Language and Environment */
     "target": "ES2022",
     "lib": ["ES2022"],
-    "module": "CommonJS",
+    "module": "commonjs",
     "moduleResolution": "node",
 
     /* Emit */
+    "rootDir": "./src",
     "outDir": "./dist",
     "removeComments": false,
     "sourceMap": true,
@@ -59,7 +60,9 @@
       "@/shared/*": ["src/shared/*"],
       "@/structures/*": ["src/structures/*"],
       "@/utils/*": ["src/utils/*"]
-    }
+    },
+
+    "ignoreDeprecations": "5.0"
   },
   "include": [
     "src/**/*.ts"

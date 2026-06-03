@@ -1,4 +1,3 @@
-/* eslint-disable no-undef */
 import {
     ChatInputCommandInteraction,
     SlashCommandBuilder,
@@ -9,12 +8,13 @@ import {
 } from "discord.js";
 import { BaseCommand } from "../../interfaces";
 import AutoReactionModel from "../../models/AutoReactionModel";
-import { redis } from "../../features/RedisDB";
+import { CacheManager } from "../../utils/CacheManager";
+import { CacheKeys } from "../../constants/CacheKeys";
 
 export default <BaseCommand>{
     data: new SlashCommandBuilder()
         .setName("arlist")
-        .setDescription("List all auto reactions from the bot")
+        .setDescription("List all auto-reactions configured in this server")
         .setContexts([
             InteractionContextType.Guild
         ])
@@ -24,7 +24,7 @@ export default <BaseCommand>{
     config: {
         category: "auto-reaction",
         usage: "",
-        examples: [""],
+        examples: ["/arlist"],
         permissions: ["Administrator"]
     },
     async execute(interaction: ChatInputCommandInteraction) {
@@ -33,54 +33,66 @@ export default <BaseCommand>{
         if (!interaction.guild) return;
         await interaction.deferReply();
 
-        const guild = await redis.get(`guild:${interaction.guildId}`);
+        const cacheManager = CacheManager.getInstance();
+        const cacheKey = CacheKeys.autoReaction.list(interaction.guild.id);
 
-        let autoReactions;
+        // Try cache first
+        let autoReactions: any[] | null = await cacheManager.get<any[]>(cacheKey);
 
-        const embed = new EmbedBuilder()
-            .setTitle("Auto Reactions")
-            .setDescription("Here is a list of all auto reactions in this server.\n")
-            .setColor("Aqua")
-            .setTimestamp();
+        if (!autoReactions) {
+            autoReactions = await AutoReactionModel.find({ guildID: interaction.guild.id });
 
-        if (guild) {
-            autoReactions = (JSON.parse(guild) as any).autoReactions;
-        } else {
-            autoReactions = await AutoReactionModel.find({ guildID: interaction.guildId });
-
-            if (!autoReactions.length) {
+            if (!autoReactions || autoReactions.length === 0) {
                 return interaction.followUp({
-                    content: "There are no auto reactions in this server.",
+                    content: "📭 No auto-reactions configured in this server.",
                     flags: MessageFlags.Ephemeral
                 });
             }
 
-            await redis.set(`guild:${interaction.guildId}`, JSON.stringify({ autoReactions }), "EX", 60);
+            // Cache for 5 minutes
+            await cacheManager.set(cacheKey, autoReactions, 300);
         }
 
+        const totalEmojis = autoReactions.reduce((sum: number, ar: any) => sum + (ar.emojis?.length ?? 0), 0);
+
+        const embed = new EmbedBuilder()
+            .setTitle("🎭 Auto-Reactions")
+            .setDescription(
+                `**${autoReactions.length} channel(s)** | **${totalEmojis} total emoji(s)**\n` +
+                `Auto-reactions add emoji reactions to every message in configured channels.\n`
+            )
+            .setColor("Aqua")
+            .setTimestamp();
+
         for (const autoReaction of autoReactions) {
-            const emojiDisplay = autoReaction.emojis?.length > 0 
-                ? (Array.isArray(autoReaction.emojis[0]) 
-                    ? autoReaction.emojis.join(" ") // Old format: array of strings
-                    : autoReaction.emojis.map((e: any) => e.raw || e.name || e).join(" ")) // New format: array of objects
+            const emojiDisplay = autoReaction.emojis?.length > 0
+                ? autoReaction.emojis.map((e: any) => e.raw || e.name || "❓").join(" ")
                 : "No emojis";
-                
-            embed.addFields(
-                {
-                    name: `Channel: <#${autoReaction.channelID}>`,
-                    value: `Emojis: ${emojiDisplay}\nAuthor: <@${autoReaction.authorID || 'Unknown'}>`,
-                    inline: false
-                }
-            );
+
+            const details: string[] = [];
+            details.push(`**Emojis:** ${emojiDisplay}`);
+            details.push(`**Count:** ${autoReaction.emojis?.length ?? 0}`);
+            details.push(`**Author:** <@${autoReaction.authorID || "Unknown"}>`);
+
+            if (autoReaction.cooldown > 0) {
+                details.push(`**Cooldown:** ${autoReaction.cooldown}s`);
+            }
+            if (autoReaction.ignoreBots !== undefined) {
+                details.push(`**Ignore Bots:** ${autoReaction.ignoreBots ? "Yes" : "No"}`);
+            }
+
+            embed.addFields({
+                name: `📍 <#${autoReaction.channelID}>`,
+                value: details.join("\n"),
+                inline: false
+            });
         }
 
         const end = performance.now();
-        const duration = (end - now).toFixed(2)
+        const duration = (end - now).toFixed(2);
 
-        embed.setFooter({ text: `Took ${duration}ms` });
+        embed.setFooter({ text: `Took ${duration}ms • Use /aradd to add, /ardelete to remove` });
 
-        interaction.followUp({
-            embeds: [embed]
-        });
+        await interaction.followUp({ embeds: [embed] });
     }
 }

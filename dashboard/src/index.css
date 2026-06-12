@@ -1,0 +1,391 @@
+@import "tailwindcss";
+
+@theme {
+  --font-nunito: 'Nunito', sans-serif;
+  --font-inter: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Theme-aware colors via CSS custom properties */
+  --color-bg: var(--bg);
+  --color-bg-light: var(--bg-light);
+  --color-bg-card: var(--bg-card);
+  --color-surface: var(--surface);
+  --color-surface-light: var(--surface-light);
+  --color-surface-lighter: var(--surface-lighter);
+  --color-border: var(--border);
+  --color-border-light: var(--border-light);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-dark: var(--text-dark);
+
+  /* Neon accent colors */
+  --color-brand: #38BDF8;
+  --color-brand-light: #7DD3FC;
+  --color-brand-dark: #0EA5E9;
+  --color-brand-glow: rgba(56, 189, 248, 0.35);
+
+  --color-secondary: #C084FC;
+  --color-secondary-light: #D8B4FE;
+  --color-secondary-glow: rgba(192, 132, 252, 0.3);
+
+  --color-accent: #F472B6;
+  --color-accent-light: #F9A8D4;
+  --color-accent-glow: rgba(244, 114, 182, 0.3);
+
+  --color-discord: #818CF8;
+  --color-discord-dark: #6366F1;
+
+  --color-success: #86EFAC;
+  --color-success-bg: rgba(134, 239, 172, 0.12);
+  --color-warning: #FDE047;
+  --color-warning-bg: rgba(253, 224, 71, 0.12);
+  --color-danger: #FCA5A5;
+  --color-danger-bg: rgba(252, 165, 165, 0.12);
+}
+
+/* === DARK MODE (default) === */
+:root {
+  --bg: #0B1120;
+  --bg-light: #111827;
+  --bg-card: #151D2E;
+  --surface: #1A2332;
+  --surface-light: #243044;
+  --surface-lighter: #2D3D52;
+  --border: #243044;
+  --border-light: #334155;
+  --text: #E2E8F0;
+  --text-muted: #94A3B8;
+  --text-dark: #64748B;
+
+  /* Discord mockup colors */
+  --discord-bg: #2F3136;
+  --discord-surface: #36393F;
+  --discord-text: #DCDDDE;
+  --discord-muted: #72767D;
+  --discord-embed-bg: #2F3136;
+}
+
+/* === LIGHT MODE === */
+body[data-theme="light"] {
+  --bg: #F0F9FF;
+  --bg-light: #E0F2FE;
+  --bg-card: #FFFFFF;
+  --surface: #FFFFFF;
+  --surface-light: #F1F5F9;
+  --surface-lighter: #E2E8F0;
+  --border: #CBD5E1;
+  --border-light: #E2E8F0;
+  --text: #1E293B;
+  --text-muted: #64748B;
+  --text-dark: #94A3B8;
+
+  /* Discord mockup colors - lighter */
+  --discord-bg: #F8FAFC;
+  --discord-surface: #FFFFFF;
+  --discord-text: #334155;
+  --discord-muted: #94A3B8;
+  --discord-embed-bg: #F1F5F9;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-inter);
+  background-color: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--surface-lighter);
+  border-radius: 100px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand);
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-14px); }
+}
+
+.animate-float {
+  animation: float 5s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px var(--color-brand-glow), 0 0 40px rgba(56, 189, 248, 0.1); }
+  50% { box-shadow: 0 0 30px var(--color-brand-glow), 0 0 60px rgba(56, 189, 248, 0.2); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient-shift 6s ease infinite;
+}
+
+.glass {
+  background: rgba(21, 29, 46, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(56, 189, 248, 0.08);
+}
+
+body[data-theme="light"] .glass {
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(56, 189, 248, 0.15);
+}
+
+.gradient-brand {
+  background: linear-gradient(135deg, var(--color-brand) 0%, var(--color-secondary) 100%);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, var(--color-brand-light) 0%, var(--color-secondary) 50%, var(--color-accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.glow-brand {
+  box-shadow: 0 0 20px var(--color-brand-glow), 0 0 40px rgba(56, 189, 248, 0.08);
+}
+
+.glow-secondary {
+  box-shadow: 0 0 20px var(--color-secondary-glow);
+}
+
+.glow-accent {
+  box-shadow: 0 0 20px var(--color-accent-glow);
+}
+
+::selection {
+  background: var(--color-brand);
+  color: white;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+/* ==================== Custom Checkbox ==================== */
+input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+input[type="checkbox"]:checked {
+  background: linear-gradient(135deg, var(--color-brand) 0%, var(--color-secondary) 100%);
+  border-color: var(--color-brand);
+}
+
+input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 4px;
+  height: 8px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+input[type="checkbox"]:hover {
+  border-color: var(--color-brand);
+  box-shadow: 0 0 8px var(--color-brand-glow);
+}
+
+input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+/* ==================== Custom Radio ==================== */
+input[type="radio"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+input[type="radio"]:checked {
+  border-color: var(--color-brand);
+  background: var(--surface);
+}
+
+input[type="radio"]:checked::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-brand) 0%, var(--color-secondary) 100%);
+}
+
+input[type="radio"]:hover {
+  border-color: var(--color-brand);
+  box-shadow: 0 0 8px var(--color-brand-glow);
+}
+
+/* ==================== Custom Range Slider ==================== */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-lighter);
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-brand) 0%, var(--color-secondary) 100%);
+  cursor: pointer;
+  box-shadow: 0 0 8px var(--color-brand-glow);
+  transition: transform 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-brand) 0%, var(--color-secondary) 100%);
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 8px var(--color-brand-glow);
+}
+
+/* ==================== Custom Select ==================== */
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px !important;
+}
+
+/* ==================== Custom Textarea ==================== */
+textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* ==================== Toggle Switch (styled checkbox) ==================== */
+.toggle-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  gap: 10px;
+}
+
+.toggle-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-switch .switch-track {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--surface-lighter);
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.toggle-switch .switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  transition: transform 0.3s ease;
+}
+
+.toggle-switch input:checked + .switch-track {
+  background: linear-gradient(135deg, var(--color-brand) 0%, var(--color-secondary) 100%);
+}
+
+.toggle-switch input:checked + .switch-track .switch-thumb {
+  transform: translateX(20px);
+}
+
+.toggle-switch:hover .switch-track {
+  box-shadow: 0 0 10px var(--color-brand-glow);
+}
+
+/* ==================== Smooth transitions for interactive elements ==================== */
+button, a, input, select, textarea {
+  transition: all 0.2s ease;
+}
+
+/* ==================== Card hover lift ==================== */
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}

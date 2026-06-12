@@ -1,6 +1,6 @@
 {
   "name": "chibi-bot",
-  "version": "3.4.1",
+  "version": "3.5.0",
   "type": "module",
   "main": "src/index.ts",
   "description": "A comprehensive Discord moderation and community management bot built with strict TypeScript, featuring advanced auto-moderation, warning systems, welcome messages, sticky messages, auto-reactions, suggestions, and fun commands. Optimized for Bun runtime with MongoDB and Redis support.",
@@ -33,7 +33,9 @@
     "db:migrate": "bun run src/cli/manage.ts db:migrate",
     "db:indexes": "bun run src/cli/manage.ts db:indexes",
     "db:stats": "bun run src/cli/manage.ts db:stats",
-    "health": "bun run src/cli/manage.ts health:check"
+    "health": "bun run src/cli/manage.ts health:check",
+    "server": "bun run src/server/index.ts",
+    "server:dev": "bun run --watch src/server/index.ts"
   },
   "keywords": [
     "discord",
@@ -58,15 +60,37 @@
     "bun": ">=1.0.0"
   },
   "dependencies": {
+    "axios": "^1.17.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
     "discord.js": "^14.26.4",
     "dotenv": "^16.6.1",
+    "express": "^5.2.1",
+    "express-session": "^1.19.0",
+    "framer-motion": "^12.40.0",
+    "helmet": "^8.2.0",
     "ioredis": "^5.11.0",
+    "lucide-react": "^1.17.0",
     "mongoose": "^8.24.0",
+    "ws": "^8.21.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/node": "^22.19.19",
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/express-session": "^1.19.0",
+    "@types/node": "^25.9.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@types/react-router-dom": "^5.3.3",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^6.0.2",
+    "tailwindcss": "^4.3.0",
     "typedoc": "^0.25.13",
-    "typescript": "5.8.3"
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "vite-plugin-singlefile": "^2.3.3"
   }
 }

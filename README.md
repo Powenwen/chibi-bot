@@ -4,7 +4,7 @@
     <img src="./assets/chibi-icon.png" alt="Chibi Bot Icon" width="200" height="200" />
 </div>
 
-A comprehensive Discord bot written in TypeScript with MongoDB and Redis integration. Features advanced moderation, welcome systems, sticky messages, auto-reactions, suggestion system, and fun commands. Built with strict TypeScript for enhanced type safety and reliability.
+A comprehensive Discord bot written in TypeScript with MongoDB and Redis integration. Features advanced moderation, welcome systems, sticky messages, auto-reactions, suggestion system, and fun commands. Includes a web dashboard for server management via Discord OAuth2. Built with strict TypeScript for enhanced type safety and reliability.
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-100%25-blue)
 ![License](https://img.shields.io/badge/license-ISC-green)
@@ -69,6 +69,15 @@ A comprehensive Discord bot written in TypeScript with MongoDB and Redis integra
 - Random content (jokes, facts, coin flips)
 - Server and user information commands
 - Ping and status commands
+
+### 🌐 **Web Dashboard**
+- Discord OAuth2 authentication
+- Guild management with real-time feature toggles
+- Welcome system configuration with live embed preview
+- Sticky messages, auto-reactions, auto-responder management
+- Moderation logs and escalation rules
+- Bot permission monitoring
+- WebSocket real-time events
 
 ## 🚀 Quick Start
 
@@ -145,9 +154,14 @@ REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_PASSWORD=
 
+# Dashboard Server
+SERVER_PORT=3000
+SERVER_URL=http://localhost:3000
+DASHBOARD_URL=http://localhost:5173
+SESSION_SECRET=your-session-secret-here
+
 # Development Settings
 NODE_ENV=development
-PREFIX=c!
 
 # Feature Flags
 ENABLE_WELCOME_SYSTEM=true
@@ -235,9 +249,21 @@ src/
 │   └── interaction/
 ├── features/          # Core feature implementations
 ├── models/            # MongoDB schemas
+├── server/            # Dashboard backend (Express + WebSocket)
+│   ├── middleware/     # Auth, rate limiting, guild access
+│   ├── routes/        # REST API routes
+│   ├── services/      # Discord API, session management
+│   └── websocket.ts   # Real-time event broadcasting
 ├── structures/        # Bot classes and handlers
 ├── utils/             # Utility functions
 └── index.ts          # Main entry point
+
+chibi-bot-web-dashboard/  # React dashboard (Vite + Tailwind)
+├── src/
+│   ├── components/    # UI components
+│   ├── pages/         # Dashboard pages
+│   ├── services/      # API clients
+│   └── store/         # Zustand state management
 
 scripts/               # Development scripts
 assets/               # Bot images and icons

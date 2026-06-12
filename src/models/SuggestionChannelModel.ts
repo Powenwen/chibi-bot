@@ -36,7 +36,7 @@ const SuggestionChannelSchema = new Schema<ISuggestionChannel>({
     },
     channelID: {
         type: String,
-        required: true
+        default: ''
     },
     enabled: {
         type: Boolean,

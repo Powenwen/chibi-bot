@@ -4,30 +4,43 @@ All notable changes to Chibi Bot will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.5.0] - 2026-06-03
+## [3.5.0] - 2026-06-12
 
-### 🔧 Refactoring
-- **Environment Configuration**: Moved all hardcoded values (guildID, owners) from `config.ts` to environment variables via `ConfigManager`
-- **ConfigManager**: Centralized all configuration through `ConfigManager` — `Client.ts` no longer imports from `config.ts`
-- **Dead Code**: `src/config/config.ts` is now unused (all consumers migrated to `ConfigManager`)
+### 🌐 Web Dashboard Integration
+- **Full Dashboard-Bot Integration**: Connected the React web dashboard to the bot's Express backend with Discord OAuth2 authentication
+- **Express Server**: Added `src/server/` with REST API routes for all guild features (welcome, sticky, auto-reactions, auto-responder, suggestions, auto-mod, escalations, mod-logs)
+- **WebSocket Server**: Real-time event broadcasting for moderation actions via `src/server/websocket.ts`
+- **Session Management**: Custom `IoRedisStore` for Express sessions with Redis backend (replaced incompatible `connect-redis`)
+- **Auth Middleware**: `requireAuth` + `requireGuildAccess` middleware with Redis-cached Discord permission checks (10-min TTL)
+- **Dashboard Auth Flow**: "Trust but verify" model — single `/auth/me` check on mount, global 401 interceptor auto-clears expired sessions
+- **Protected Routes**: Loading state during auth check, no redirect flash
+
+### 🎨 UI/UX Improvements
+- **@skyra/discord-components-react**: Replaced custom Discord embed renderer with official library for authentic Discord-styled messages
+- **Custom Form Styling**: Styled checkboxes, radio buttons, range sliders, select elements, and toggle switches
+- **Card Hover Effects**: Smooth lift transitions on interactive cards
+- **Guild Icon Fallback**: Colored initials when guild has no icon (in sidebar and guild selector)
+- **Slash Commands**: Updated all command references from `c!` prefix to `/` across the dashboard
+
+### 🔧 Bug Fixes & Sync Corrections
+- **Welcome System**: Fixed `type` enum mismatch (frontend sent `"default"`, model expects `"embed"/"text"/"both"`), made `channelID` optional in model, added explicit field mapping in backend route to prevent validation failures
+- **Sticky Messages**: Fixed `authorID` being set to guild ID instead of user ID, added required field generation (`messageID`, `uniqueID`, `messageChannelID`)
+- **Auto-Responder**: Fixed `channelID` validation — backend now explicitly maps all fields instead of blind-spreading `req.body`
+- **Suggestions**: Fixed status enum mismatch (backend now uses capitalized `"Approved"`/`"Denied"` to match model), fixed `upvotes`/`downvotes` type (arrays of user IDs, not numbers), added `suggestion` field mapping
+- **Auto-Mod**: Fixed `toApi` mapper — now includes `duplicateFilter`, `linkFilter`, and `caps` sections the model expects
+- **Logs Tab**: Fixed filter field (`log.type` not `log.action`), fixed moderator/target search fields
+- **Feature Toggles**: Fixed `AutoReactionModel`/`AutoResponderModel` toggle — these models don't have `enabled` field, toggle now checks document existence instead
+- **Escalation Rules**: Fixed `deleteEscalationRule` return type mismatch
+- **BigInt Permissions**: Fixed Discord permission checking for large integers using BigInt in middleware
+
+### 🏗️ Architecture
+- **Feature Toggle Routes**: Added `src/server/routes/features.ts` with GET/PUT endpoints that read/write `enabled` field on each feature's MongoDB collection
+- **Bot Permissions Endpoint**: Added `/api/guilds/:guildId/bot-permissions` — checks bot's actual server-level permissions from member object + role resolution
+- **Dashboard Directory**: Renamed from `chibi-bot-web-dashboard` to `dashboard`
 
 ### 📚 Documentation
-- **README.md**: Updated version badge, added `OWNER_IDS`/`BOT_ACTIVITY_NAME`/`BOT_ACTIVITIES` env vars, expanded feature descriptions, added CLI management section
-- **CHANGELOG.md**: Added v3.5.0 entry
-- **.env.example**: Added bot activity configuration env vars
-
-### 🎭 Auto-Reaction System Improvements
-- **aradd**: Added cooldown support, regex pattern matching, bulk emoji validation, better error messages
-- **ardelete**: Added confirmation embed with deleted reaction details
-- **arlist**: Improved formatting with emoji type indicators, pagination support
-
-### 🤖 Auto-Responder System Improvements
-- **arespadd**: Added regex pattern support, cooldown configuration, response delay, mention suppression
-- **arespdelete**: Improved deletion with better feedback and cache invalidation
-- **aresplist**: Enhanced formatting with trigger type indicators, pagination
-
-### ⚡ Performance
-- **messageCreate**: Migrated auto-reaction/resolver to use `CacheManager` with proper cache key patterns, added cooldown tracking per channel
+- **README.md**: Updated with dashboard features, correct env vars, accurate project structure including `src/server/` and `dashboard/`
+- **Dashboard README**: Updated auth flow, environment variables, database collections, and development instructions
 
 ## [3.1.2] - 2025-09-28
 

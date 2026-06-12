@@ -58,7 +58,7 @@ const WelcomeSystemSchema = new Schema<IWelcomeSystem>({
     },
     channelID: {
         type: String,
-        required: true
+        default: ''
     },
     enabled: {
         type: Boolean,

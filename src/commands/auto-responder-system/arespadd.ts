@@ -36,13 +36,6 @@ export default <BaseCommand>{
         .setIntegrationTypes([
             ApplicationIntegrationType.GuildInstall
         ])
-        .addChannelOption(option =>
-            option
-                .setName("channel")
-                .setDescription("The channel you want the auto responder to be in")
-                .setRequired(true)
-                .addChannelTypes(ChannelType.GuildText)
-        )
         .addStringOption(option =>
             option
                 .setName("trigger")
@@ -56,6 +49,13 @@ export default <BaseCommand>{
                 .setDescription("The response message to send when triggered")
                 .setRequired(true)
                 .setMaxLength(2000)
+        )
+        .addChannelOption(option =>
+            option
+                .setName("channel")
+                .setDescription("The channel for this responder (leave empty for all channels)")
+                .setRequired(false)
+                .addChannelTypes(ChannelType.GuildText)
         )
         .addBooleanOption(option =>
             option
@@ -95,6 +95,20 @@ export default <BaseCommand>{
                 .setRequired(false)
                 .setMaxLength(7)
         )
+        .addStringOption(option =>
+            option
+                .setName("embed-description")
+                .setDescription("Description for the embed (only used if use-embed is true)")
+                .setRequired(false)
+                .setMaxLength(4096)
+        )
+        .addStringOption(option =>
+            option
+                .setName("embed-footer")
+                .setDescription("Footer text for the embed (only used if use-embed is true)")
+                .setRequired(false)
+                .setMaxLength(2048)
+        )
         .addIntegerOption(option =>
             option
                 .setName("cooldown")
@@ -120,13 +134,13 @@ export default <BaseCommand>{
     ,
     config: {
         category: "auto-responder",
-        usage: "<channel> <trigger> <response> [case-sensitive] [exact-match] [use-regex] [use-embed] [embed-title] [embed-color] [cooldown] [response-delay] [suppress-mentions]",
+        usage: "[channel] <trigger> <response> [case-sensitive] [exact-match] [use-regex] [use-embed] [embed-title] [embed-color] [cooldown] [response-delay] [suppress-mentions]",
         examples: [
+            "/arespadd trigger:hello response:Hi there!",
             "/arespadd channel:#general trigger:hello response:Hi there!",
-            "/arespadd channel:#support trigger:help response:How can I assist you? cooldown:10",
-            "/arespadd channel:#bot trigger:^!rules$ response:Please read our rules! use-regex:true",
-            "/arespadd channel:#announcements trigger:welcome response:Welcome! use-embed:true embed-title:Welcome embed-color:#5865F2",
-            "/arespadd channel:#general trigger:good morning response:Good morning! ☀️ response-delay:500 suppress-mentions:true"
+            "/arespadd trigger:welcome response:Welcome! use-embed:true embed-title:Welcome embed-description:Enjoy your stay! embed-color:#5865F2",
+            "/arespadd trigger:^!rules$ response:Please read our rules! use-regex:true",
+            "/arespadd channel:#support trigger:help response:How can I assist you? cooldown:10 suppress-mentions:true"
         ],
         permissions: ["Administrator"]
     },
@@ -135,7 +149,7 @@ export default <BaseCommand>{
 
         try {
             const options = interaction.options;
-            const channel = options.getChannel("channel", true, [ChannelType.GuildText]);
+            const channel = options.getChannel("channel", false, [ChannelType.GuildText]);
             const trigger = options.getString("trigger", true);
             const response = options.getString("response", true);
             const caseSensitive = options.getBoolean("case-sensitive") ?? false;
@@ -143,12 +157,14 @@ export default <BaseCommand>{
             const useRegex = options.getBoolean("use-regex") ?? false;
             const useEmbed = options.getBoolean("use-embed") ?? false;
             const embedTitle = options.getString("embed-title");
+            const embedDescription = options.getString("embed-description");
             const embedColor = options.getString("embed-color");
+            const embedFooter = options.getString("embed-footer");
             const cooldown = options.getInteger("cooldown") ?? 0;
             const responseDelay = options.getInteger("response-delay") ?? 0;
             const suppressMentions = options.getBoolean("suppress-mentions") ?? true;
 
-            if (!channel || !trigger || !response) return;
+            if (!trigger || !response) return;
 
             // Validate regex if enabled
             if (useRegex) {
@@ -190,12 +206,15 @@ export default <BaseCommand>{
                 });
             }
 
-            // Check for duplicate trigger in this channel
-            const existingAutoResponder = await AutoResponderModel.findOne({
+            // Check for duplicate trigger in this channel (or all channels if no channel specified)
+            const duplicateQuery: any = {
                 guildID: interaction.guild.id,
-                channelID: channel.id,
                 trigger: caseSensitive ? trigger : { $regex: new RegExp(`^${trigger}$`, 'i') }
-            });
+            };
+            if (channel) {
+                duplicateQuery.channelID = channel.id;
+            }
+            const existingAutoResponder = await AutoResponderModel.findOne(duplicateQuery);
 
             if (existingAutoResponder) {
                 return interaction.reply({
@@ -207,15 +226,17 @@ export default <BaseCommand>{
             // Create the auto-responder
             const newAutoResponder = new AutoResponderModel({
                 guildID: interaction.guild.id,
-                channelID: channel.id,
+                channelID: channel ? channel.id : '',
                 trigger,
-                response,
+                response: useEmbed ? (embedDescription || response) : response,
                 caseSensitive,
                 exactMatch,
                 useRegex,
                 useEmbed,
                 embedTitle: embedTitle || undefined,
+                embedDescription: embedDescription || undefined,
                 embedColor: normalizedColor || "#5865F2",
+                embedFooter: embedFooter || undefined,
                 cooldown,
                 responseDelay,
                 suppressMentions,
@@ -226,7 +247,9 @@ export default <BaseCommand>{
 
             // Invalidate cache
             const cacheManager = CacheManager.getInstance();
-            await cacheManager.delete(CacheKeys.autoResponder.channel(interaction.guild.id, channel.id));
+            if (channel) {
+                await cacheManager.delete(CacheKeys.autoResponder.channel(interaction.guild.id, channel.id));
+            }
             await cacheManager.delete(CacheKeys.autoResponder.all(interaction.guild.id));
 
             // Build response embed
@@ -242,8 +265,14 @@ export default <BaseCommand>{
             if (useEmbed && embedTitle) {
                 fields.push({ name: "Embed Title", value: embedTitle, inline: true });
             }
+            if (useEmbed && embedDescription) {
+                fields.push({ name: "Embed Description", value: embedDescription.substring(0, 100) + (embedDescription.length > 100 ? '...' : ''), inline: true });
+            }
             if (useEmbed) {
                 fields.push({ name: "Embed Color", value: normalizedColor || "#5865F2", inline: true });
+            }
+            if (useEmbed && embedFooter) {
+                fields.push({ name: "Embed Footer", value: embedFooter, inline: true });
             }
             if (cooldown > 0) {
                 fields.push({ name: "Cooldown", value: `${cooldown}s`, inline: true });
@@ -255,7 +284,7 @@ export default <BaseCommand>{
 
             const embed = new EmbedBuilder()
                 .setTitle("✅ Auto-Responder Added")
-                .setDescription(`Auto-responder configured for <#${channel.id}>`)
+                .setDescription(`Auto-responder configured for ${channel ? `<#${channel.id}>` : 'all channels'}`)
                 .addFields(fields)
                 .setColor("Green")
                 .setTimestamp();

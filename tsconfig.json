@@ -4,7 +4,8 @@
     "target": "ES2022",
     "lib": ["ES2022"],
     "module": "commonjs",
-    "moduleResolution": "node",
+    "moduleResolution": "node10",
+    "ignoreDeprecations": "6.0",
 
     /* Emit */
     "rootDir": "./src",
@@ -57,12 +58,12 @@
       "@/features/*": ["src/features/*"],
       "@/interfaces/*": ["src/interfaces/*"],
       "@/models/*": ["src/models/*"],
+      "@/server/*": ["src/server/*"],
       "@/shared/*": ["src/shared/*"],
       "@/structures/*": ["src/structures/*"],
       "@/utils/*": ["src/utils/*"]
     },
 
-    "ignoreDeprecations": "5.0"
   },
   "include": [
     "src/**/*.ts"

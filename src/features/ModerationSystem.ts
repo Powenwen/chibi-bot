@@ -6,6 +6,7 @@ import WarningEscalationModel, { IWarningEscalation, EscalationRule } from "../m
 import Logger from "./Logger";
 import { redis } from "./RedisDB";
 import Utility from "../structures/Utility";
+import { publishNewCase, publishConfigEvent } from "../server/events";
 
 export default class ModerationSystem {
     
@@ -52,6 +53,17 @@ export default class ModerationSystem {
 
         // Log the action
         await this.logModerationAction(guild, moderationCase);
+
+        // Publish real-time event to WebSocket clients
+        publishNewCase(redis, {
+            guildId: guild.id,
+            caseId: caseID,
+            action: type,
+            userId: user.id,
+            moderatorId: moderator.id,
+            reason,
+            duration,
+        }).catch((err) => Logger.warn(`Failed to publish moderation event: ${err}`));
 
         return moderationCase;
     }
@@ -112,6 +124,14 @@ export default class ModerationSystem {
 
         // Update cache
         await redis.setex(`automod:${guildID}`, 1800, JSON.stringify(updated));
+
+        // Publish real-time config change event
+        publishConfigEvent(redis, {
+            guildId: guildID,
+            feature: "automod",
+            data: updated.toObject() as unknown as Record<string, unknown>,
+            timestamp: new Date().toISOString(),
+        }).catch((err) => Logger.warn(`Failed to publish config event: ${err}`));
 
         return updated;
     }

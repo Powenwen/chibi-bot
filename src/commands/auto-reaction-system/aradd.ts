@@ -99,18 +99,18 @@ export default <BaseCommand>{
         .setIntegrationTypes([
             ApplicationIntegrationType.GuildInstall
         ])
-        .addChannelOption(option =>
-            option
-                .setName("channel")
-                .setDescription("The channel to add auto-reactions to")
-                .setRequired(true)
-                .addChannelTypes(ChannelType.GuildText)
-        )
         .addStringOption(option =>
             option
                 .setName("emojis")
                 .setDescription("Emojis to react with, separated by spaces (e.g., '😄 👍 <:custom:123>')")
                 .setRequired(true)
+        )
+        .addChannelOption(option =>
+            option
+                .setName("channel")
+                .setDescription("The channel for auto-reactions (leave empty for all channels)")
+                .setRequired(false)
+                .addChannelTypes(ChannelType.GuildText)
         )
         .addIntegerOption(option =>
             option
@@ -129,11 +129,12 @@ export default <BaseCommand>{
     ,
     config: {
         category: "auto-reaction",
-        usage: "<channel> <emojis> [cooldown] [ignore-bots]",
+        usage: "[channel] <emojis> [cooldown] [ignore-bots]",
         examples: [
+            "/aradd emojis:😄 👍 🎉",
             "/aradd channel:#general emojis:😄 👍 🎉",
             "/aradd channel:#starboard emojis:⭐ 🌟 cooldown:5",
-            "/aradd channel:#welcome emojis:👋 <:custom_emoji:123456789> ignore-bots:true"
+            "/aradd emojis:👋 <:custom_emoji:123456789> ignore-bots:true"
         ],
         permissions: ["Administrator"]
     },
@@ -141,17 +142,10 @@ export default <BaseCommand>{
         if (!interaction.guild) return;
 
         try {
-            const channel = interaction.options.getChannel("channel", true, [ChannelType.GuildText]);
+            const channel = interaction.options.getChannel("channel", false, [ChannelType.GuildText]);
             const emojisInput = interaction.options.getString("emojis", true);
             const cooldown = interaction.options.getInteger("cooldown") ?? 0;
             const ignoreBots = interaction.options.getBoolean("ignore-bots") ?? true;
-
-            if (!channel) {
-                return interaction.reply({
-                    content: "❌ Invalid channel specified.",
-                    flags: MessageFlags.Ephemeral
-                });
-            }
 
             // Parse emojis
             const { valid: parsedEmojis, invalid: invalidEmojis } = parseEmojisInput(emojisInput, interaction.guild);
@@ -170,15 +164,14 @@ export default <BaseCommand>{
                 });
             }
 
-            // Check for existing auto-reaction in this channel
-            const existing = await AutoReactionModel.findOne({
-                guildID: interaction.guild.id,
-                channelID: channel.id
-            });
+            // Check for existing auto-reaction in this channel (or all channels)
+            const dupQuery: any = { guildID: interaction.guild.id };
+            if (channel) dupQuery.channelID = channel.id;
+            const existing = await AutoReactionModel.findOne(dupQuery);
 
             if (existing) {
                 return interaction.reply({
-                    content: `⚠️ Auto-reaction already exists in <#${channel.id}>. Use \`/ardelete\` first to remove it.`,
+                    content: `⚠️ Auto-reaction already exists${channel ? ` in <#${channel.id}>` : ' for all channels'}. Use \`/ardelete\` first to remove it.`,
                     flags: MessageFlags.Ephemeral
                 });
             }
@@ -186,7 +179,7 @@ export default <BaseCommand>{
             // Create the auto-reaction
             const newAutoReaction = new AutoReactionModel({
                 guildID: interaction.guild.id,
-                channelID: channel.id,
+                channelID: channel ? channel.id : '',
                 emojis: parsedEmojis as IEmojiReaction[],
                 authorID: interaction.user.id,
                 cooldown,
@@ -197,13 +190,13 @@ export default <BaseCommand>{
 
             // Invalidate cache
             const cacheManager = CacheManager.getInstance();
-            await cacheManager.delete(CacheKeys.autoReaction.channel(interaction.guild.id, channel.id));
+            if (channel) await cacheManager.delete(CacheKeys.autoReaction.channel(interaction.guild.id, channel.id));
             await cacheManager.delete(CacheKeys.autoReaction.all(interaction.guild.id));
 
             // Build response embed
             const embed = new EmbedBuilder()
                 .setTitle("✅ Auto-Reaction Added")
-                .setDescription(`Auto-reaction configured for <#${channel.id}>`)
+                .setDescription(`Auto-reaction configured for ${channel ? `<#${channel.id}>` : 'all channels'}`)
                 .addFields([
                     {
                         name: "Emojis",

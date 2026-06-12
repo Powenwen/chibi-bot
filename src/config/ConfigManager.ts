@@ -9,6 +9,10 @@ const BotConfigSchema = z.object({
     guildId: z.string().min(1, 'Guild ID is required'),
     ownerIds: z.array(z.string()).default([]),
     environment: z.enum(['development', 'production', 'test']).default('development'),
+    discordClientSecret: z.string().default(''),
+    sessionSecret: z.string().default('chibi-dev-secret-change-in-production'),
+    dashboardUrl: z.string().url().default('http://localhost:5173'),
+    serverPort: z.number().int().positive().default(3000),
     database: z.object({
         mongodb: z.object({
             uri: z.string().url('Invalid MongoDB URI'),
@@ -81,6 +85,10 @@ export class ConfigManager {
                 guildId: process.env.GUILD_ID,
                 ownerIds: process.env.OWNER_IDS ? JSON.parse(process.env.OWNER_IDS) : undefined,
                 environment: process.env.NODE_ENV,
+                discordClientSecret: process.env.DISCORD_CLIENT_SECRET,
+                sessionSecret: process.env.SESSION_SECRET,
+                dashboardUrl: process.env.DASHBOARD_URL,
+                serverPort: process.env.SERVER_PORT ? parseInt(process.env.SERVER_PORT) : undefined,
                 database: {
                     mongodb: {
                         uri: process.env.MONGO_URI,
